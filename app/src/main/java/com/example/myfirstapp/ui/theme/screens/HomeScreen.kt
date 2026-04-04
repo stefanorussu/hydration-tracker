@@ -9,7 +9,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.myfirstapp.ui.viewmodel.WaterViewModel
-import com.example.myfirstapp.model.DrinkType
 
 @Composable
 fun HomeScreen(viewModel: WaterViewModel) {

@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myfirstapp.data.local.entities.WaterLog
 import com.example.myfirstapp.data.repository.WaterRepository
-import com.example.myfirstapp.model.DrinkType
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn

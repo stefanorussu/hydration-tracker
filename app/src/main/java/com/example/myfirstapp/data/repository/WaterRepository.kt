@@ -1,6 +1,5 @@
 import com.example.myfirstapp.data.local.WaterDao
 import com.example.myfirstapp.data.local.entities.WaterLog
-import com.example.myfirstapp.model.DrinkType
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
 
