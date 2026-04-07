@@ -1,26 +1,15 @@
-package com.stefanorussu.hydrationtracker.model
+package com.stefanorussu.hydrationtracker.data.local
+
+enum class ActivityLevel(val multiplier: Float, val displayName: String) {
+    SEDENTARY(30f, "Sedentario"),
+    MODERATE(35f, "Moderato"),
+    ACTIVE(40f, "Attivo"),
+    ATHLETE(45f, "Atleta")
+}
 
 data class UserProfile(
-    val weightKg: Double,
-    val age: Int,
-    val isMale: Boolean
-) {
-    /**
-     * Calcola l'obiettivo giornaliero basato sulla formula:
-     * (Peso * 30ml) + correzioni per età.
-     */
-    fun calculateDailyGoalMl(): Int {
-        var goal = (weightKg * 30).toInt()
-
-        // Gli anziani hanno bisogno di meno, i giovani di più
-        when {
-            age < 30 -> goal += 200
-            age > 55 -> goal -= 200
-        }
-
-        // Differenza statistica media tra i sessi
-        if (isMale) goal += 300
-
-        return goal
-    }
-}
+    val weightKg: Float = 70f,
+    val age: Int = 25,
+    val isMale: Boolean = true,
+    val activityLevel: ActivityLevel = ActivityLevel.MODERATE
+)

@@ -43,9 +43,25 @@ android {
         // Fondamentale per Kotlin 1.9.22
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+
+    packaging {
+        resources {
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE"
+            excludes += "META-INF/LICENSE.txt"
+            excludes += "META-INF/license.txt"
+            excludes += "META-INF/NOTICE"
+            excludes += "META-INF/NOTICE.txt"
+            excludes += "META-INF/notice.txt"
+            excludes += "META-INF/ASL2.0"
+            excludes += "META-INF/*.kotlin_module"
+        }
+    }
 }
 
 dependencies {
+    implementation(libs.androidx.monitor)
+    implementation(libs.androidx.constraintlayout.core)
     // 1. ROOM (KSP deve essere isolato)
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
@@ -72,6 +88,15 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.navigation:navigation-compose:2.8.0")
+    implementation("androidx.compose.material:material-icons-extended")
+
+    implementation("com.google.code.gson:gson:2.10.1")
+    // Autenticazione con account Google
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+
+    // Librerie per comunicare con Google Drive
+    implementation("com.google.api-client:google-api-client-android:1.33.0")
+    implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0")
 }
 
 // Questo codice forza Gradle a ignorare il task che sta causando il crash

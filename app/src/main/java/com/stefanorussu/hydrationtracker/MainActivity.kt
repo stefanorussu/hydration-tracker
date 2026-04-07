@@ -1,57 +1,73 @@
-package com.stefanorussu.hydrationtracker // Assicurati che il package sia corretto
+package com.stefanorussu.hydrationtracker
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
+import com.stefanorussu.hydrationtracker.data.backup.BackupRepository
+import com.stefanorussu.hydrationtracker.data.backup.CryptoManager
+import com.stefanorussu.hydrationtracker.data.backup.GoogleDriveManager
 import com.stefanorussu.hydrationtracker.data.local.AppDatabase
+import com.stefanorussu.hydrationtracker.data.local.BackupPreferencesManager
 import com.stefanorussu.hydrationtracker.data.local.ThemePreferencesManager
 import com.stefanorussu.hydrationtracker.data.local.UserProfileManager
 import com.stefanorussu.hydrationtracker.data.repository.WaterRepository
 import com.stefanorussu.hydrationtracker.ui.NavGraph
+import com.stefanorussu.hydrationtracker.ui.screens.OnboardingScreen
 import com.stefanorussu.hydrationtracker.ui.theme.HydrationTrackerTheme
-import com.stefanorussu.hydrationtracker.ui.viewmodel.*
-import com.stefanorussu.hydrationtracker.worker.HydrationReminderWorker
-import java.util.concurrent.TimeUnit
+import com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel
+import com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModelFactory
+import com.stefanorussu.hydrationtracker.ui.viewmodel.SettingsViewModel
+import com.stefanorussu.hydrationtracker.ui.viewmodel.SettingsViewModelFactory
+import com.stefanorussu.hydrationtracker.ui.viewmodel.StatsViewModel
+import com.stefanorussu.hydrationtracker.ui.viewmodel.StatsViewModelFactory
+import com.stefanorussu.hydrationtracker.ui.viewmodel.WaterViewModel
+import com.stefanorussu.hydrationtracker.ui.viewmodel.WaterViewModelFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. Inizializzazione Manager e Repository
-        val database = AppDatabase.getDatabase(this)
-        val repository = WaterRepository(database.waterDao())
-        val themePrefsManager = ThemePreferencesManager(applicationContext)
-        val userProfileManager = UserProfileManager(applicationContext)
+        val context = applicationContext
+        val database = AppDatabase.getDatabase(context)
+        val waterDao = database.waterDao()
 
-        // 2. Notifiche e Permessi
-        val workRequest = PeriodicWorkRequestBuilder<HydrationReminderWorker>(2, TimeUnit.HOURS).build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "HydrationReminder",
-            ExistingPeriodicWorkPolicy.KEEP,
-            workRequest
-        )
+        val themePrefsManager = ThemePreferencesManager(context)
+        val backupPrefsManager = BackupPreferencesManager(context)
+        val userProfileManager = UserProfileManager(context)
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            androidx.core.app.ActivityCompat.requestPermissions(
-                this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101
-            )
-        }
+        val cryptoManager = CryptoManager()
+        val driveManager = GoogleDriveManager(context)
 
-        // 3. UI
+        val backupRepository = BackupRepository(context, waterDao, cryptoManager, driveManager)
+        val waterRepository = WaterRepository(waterDao)
+
         setContent {
-            // SettingsViewModel non ha bisogno di Factory complessa se non ha parametri particolari,
-            // ma per coerenza usiamo lo stesso approccio o passiamo il manager.
             val settingsViewModel: SettingsViewModel = viewModel(
-                factory = SettingsViewModelFactory(themePrefsManager)
+                factory = SettingsViewModelFactory(themePrefsManager, backupRepository, backupPrefsManager, driveManager)
             )
+
+            val waterViewModel: WaterViewModel = viewModel(
+                factory = WaterViewModelFactory(waterRepository)
+            )
+
+            val profileViewModel: ProfileViewModel = viewModel(
+                factory = ProfileViewModelFactory(userProfileManager)
+            )
+
+            val statsViewModel: StatsViewModel = viewModel(
+                factory = StatsViewModelFactory(waterRepository)
+            )
+
             val themeMode by settingsViewModel.themeMode.collectAsState()
 
             if (themeMode != null) {
@@ -61,23 +77,32 @@ class MainActivity : ComponentActivity() {
                     else -> isSystemInDarkTheme()
                 }
 
+                // Passiamo il parametro useDarkTheme per far funzionare il cambio tema
                 HydrationTrackerTheme(darkTheme = useDarkTheme) {
-                    val navController = rememberNavController()
+                    val localContext = LocalContext.current
+                    val prefs = localContext.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
 
-                    val waterViewModel: WaterViewModel = viewModel(
-                        factory = WaterViewModelFactory(repository)
-                    )
+                    // Legge se è il primo avvio (di default è true se non trova nulla)
+                    var isFirstRun by remember { mutableStateOf(prefs.getBoolean("is_first_run", true)) }
 
-                    val profileViewModel: ProfileViewModel = viewModel(
-                        factory = ProfileViewModelFactory(userProfileManager)
-                    )
-
-                    NavGraph(
-                        navController = navController,
-                        waterViewModel = waterViewModel,
-                        settingsViewModel = settingsViewModel,
-                        profileViewModel = profileViewModel
-                    )
+                    if (isFirstRun) {
+                        OnboardingScreen(
+                            profileViewModel = profileViewModel,
+                            onFinish = {
+                                isFirstRun = false // Cambia lo stato, la UI si aggiorna e passa alla Home
+                            }
+                        )
+                    } else {
+                        // VERO CODICE DI NAVIGAZIONE
+                        val navController = rememberNavController()
+                        NavGraph(
+                            navController = navController,
+                            waterViewModel = waterViewModel,
+                            settingsViewModel = settingsViewModel,
+                            profileViewModel = profileViewModel,
+                            statsViewModel = statsViewModel
+                        )
+                    }
                 }
             }
         }

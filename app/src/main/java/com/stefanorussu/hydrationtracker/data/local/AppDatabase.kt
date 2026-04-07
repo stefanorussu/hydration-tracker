@@ -4,11 +4,11 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.stefanorussu.hydrationtracker.data.local.entities.WaterLog
 
-@Database(entities = [WaterLog::class], version = 1, exportSchema = false)
+// ... importazioni ...
+
+@Database(entities = [WaterRecord::class], version = 2, exportSchema = false) // Mettiamo version = 2
 abstract class AppDatabase : RoomDatabase() {
-
     abstract fun waterDao(): WaterDao
 
     companion object {
@@ -20,8 +20,10 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "water_database"
-                ).build()
+                    "hydration_database"
+                )
+                    .fallbackToDestructiveMigration() // DISTRUGGE E RICREA IN CASO DI MODIFICHE
+                    .build()
                 INSTANCE = instance
                 instance
             }

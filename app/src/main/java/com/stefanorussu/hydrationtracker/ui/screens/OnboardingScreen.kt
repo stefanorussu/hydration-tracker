@@ -1,13 +1,14 @@
 package com.stefanorussu.hydrationtracker.ui.screens
 
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -26,39 +27,44 @@ import com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(
+fun OnboardingScreen(
     profileViewModel: ProfileViewModel,
-    onBackClick: () -> Unit
+    onFinish: () -> Unit
 ) {
-    val profile by profileViewModel.userProfile.collectAsState()
     val context = LocalContext.current
 
-    var editWeight by remember { mutableStateOf(profile.weightKg.toString()) }
-    var editAge by remember { mutableStateOf(profile.age.toString()) }
-    var editIsMale by remember { mutableStateOf(profile.isMale) }
-    var editActivity by remember { mutableStateOf(profile.activityLevel) }
+    // Stati iniziali vuoti per invitare l'utente a compilarli
+    var editWeight by remember { mutableStateOf("") }
+    var editAge by remember { mutableStateOf("") }
+    var editIsMale by remember { mutableStateOf(true) }
+    var editActivity by remember { mutableStateOf(ActivityLevel.MODERATE) } // Usiamo Moderato come media
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Modifica Profilo", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Text(
+                text = "Benvenuto! \uD83D\uDCA7",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Per calcolare il tuo obiettivo di idratazione ideale su misura per te, abbiamo bisogno di qualche dato.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
 
             // PESO E ETÀ
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -85,8 +91,11 @@ fun ProfileScreen(
                 )
             }
 
-            // SESSO (Segmented Control MD3)
-            Text("Sesso", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // SESSO
+            Text("Sesso", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = editIsMale,
@@ -104,8 +113,11 @@ fun ProfileScreen(
                 )
             }
 
-            // LIVELLO DI ATTIVITÀ (Card Interattive Compatte)
-            Text("Livello di Attività", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // LIVELLO DI ATTIVITÀ
+            Text("Livello di Attività", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ActivityLevel.entries.forEach { level ->
                     val isSelected = editActivity == level
@@ -119,18 +131,18 @@ fun ProfileScreen(
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
                                 selected = isSelected,
                                 onClick = { editActivity = level },
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
                                 text = level.name,
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                             )
@@ -139,12 +151,14 @@ fun ProfileScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(40.dp))
 
+            // PULSANTE FINALE DI SALVATAGGIO E AVVIO
             Button(
                 onClick = {
-                    val newWeight = editWeight.replace(",", ".").toFloatOrNull() ?: profile.weightKg
-                    val newAge = editAge.toIntOrNull() ?: profile.age
+                    // Valori di default di sicurezza se l'utente lascia i campi vuoti
+                    val newWeight = editWeight.replace(",", ".").toFloatOrNull() ?: 70f
+                    val newAge = editAge.toIntOrNull() ?: 25
 
                     val newProfile = UserProfile(
                         weightKg = newWeight,
@@ -153,13 +167,20 @@ fun ProfileScreen(
                         activityLevel = editActivity
                     )
 
+                    // 1. Salva il profilo e calcola l'obiettivo
                     profileViewModel.updateProfile(context, newProfile)
-                    onBackClick()
+
+                    // 2. Segna che il primo avvio è completato
+                    val prefs = context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean("is_first_run", false).apply()
+
+                    // 3. Passa alla Home
+                    onFinish()
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 32.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Salva Profilo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("CALCOLA E INIZIA", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
         }
     }
