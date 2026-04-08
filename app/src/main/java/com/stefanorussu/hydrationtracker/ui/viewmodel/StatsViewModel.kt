@@ -15,7 +15,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
 enum class TimeTab {
     DAY, WEEK, MONTH, YEAR
@@ -101,10 +100,35 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
         }
     }
 
-    fun deleteRecord(record: WaterRecord) {
-        viewModelScope.launch {
+    // Ho aggiunto il fitbitRepository come parametro
+    fun deleteRecord(
+        record: com.stefanorussu.hydrationtracker.data.local.WaterRecord,
+        fitbitRepository: com.stefanorussu.hydrationtracker.data.repository.FitbitRepository
+    ) {
+        // URLO DI CONTROLLO: Se non vedi questo, il tasto non sta chiamando questa funzione!
+        android.util.Log.d("FITBIT_SYNC", "👉 TASTO ELIMINA PREMUTO! Cerco di eliminare: ${record.drinkName}")
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // 1. Elimina fisicamente dal tuo telefono
             repository.deleteWater(record)
-            loadDataForCurrentTab()
+
+            // 2. Controllo Fitbit
+            if (record.externalId != null) {
+                android.util.Log.d("FITBIT_SYNC", "Record con ID ${record.externalId} trovato. Chiamo i server Fitbit...")
+                val success = fitbitRepository.deleteRecordFromFitbit(record.externalId)
+                if (success) {
+                    android.util.Log.d("FITBIT_SYNC", "SUCCESSO! Acqua eliminata da Fitbit.")
+                } else {
+                    android.util.Log.e("FITBIT_SYNC", "Eliminazione su Fitbit fallita.")
+                }
+            } else {
+                android.util.Log.w("FITBIT_SYNC", "ATTENZIONE: Questo record ha l'ID vuoto! Non chiamo Fitbit.")
+            }
+
+            // 3. Ricarica lo schermo
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                loadDataForCurrentTab()
+            }
         }
     }
 
@@ -169,10 +193,9 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
             }
         }
 
-        val tzOffset = TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong()
-
         dataJob = viewModelScope.launch {
-            repository.getStatsBetweenDates(startTimestamp, endTimestamp, tzOffset).collect { stats ->
+            // CORRETTO: rimosso tzOffset. Ora i parametri combaciano perfettamente!
+            repository.getStatsBetweenDates(startTimestamp, endTimestamp).collect { stats ->
                 if (_currentTab.value != TimeTab.DAY) {
                     processAggregatedData(stats, _currentTab.value, startTimestamp)
                 }

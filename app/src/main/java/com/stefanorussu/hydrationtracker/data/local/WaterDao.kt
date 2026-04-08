@@ -1,67 +1,49 @@
 package com.stefanorussu.hydrationtracker.data.local
 
-import androidx.room.Dao
-import androidx.room.Delete
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
-import androidx.room.Update
+import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface WaterDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(record: WaterRecord)
+    suspend fun insert(record: WaterRecord): Long
+
+    @Query("UPDATE water_logs SET externalId = :fitbitId, source = 'LOCAL' WHERE id = :recordId")
+    suspend fun updateFitbitId(recordId: Int, fitbitId: String)
 
     @Update
-    suspend fun update(record: WaterRecord)
-
-    // Modificata per accettare il calcolo esatto della mezzanotte locale
-    @Query("SELECT SUM(amountMl) FROM water_logs WHERE timestamp >= :startTimestamp AND timestamp <= :endTimestamp")
-    fun getTodayTotal(startTimestamp: Long, endTimestamp: Long): Flow<Int?>
-
-    // Rimane intatta per non rompere il backup
-    @Query("""
-        DELETE FROM water_logs 
-        WHERE timestamp >= strftime('%s', 'now', 'start of day') * 1000
-    """)
-    suspend fun deleteToday()
+    suspend fun updateWater(record: WaterRecord)
 
     @Delete
-    suspend fun delete(record: WaterRecord)
+    suspend fun deleteWater(record: WaterRecord)
 
-    @Query("SELECT * FROM water_logs")
-    suspend fun getAllRecords(): List<WaterRecord>
+    @Query("SELECT SUM(amountMl) FROM water_logs WHERE timestamp BETWEEN :startOfDay AND :endOfDay")
+    fun getTodayTotal(startOfDay: Long, endOfDay: Long): Flow<Int?>
 
-    // MODIFICA CRONOLOGICA: Ora ordina in ASC (dal primo all'ultimo)
-    @Query("""
-        SELECT * FROM water_logs 
-        WHERE timestamp >= :startTimestamp AND timestamp <= :endTimestamp
-        ORDER BY timestamp ASC
-    """)
-    fun getRecordsBetweenDates(startTimestamp: Long, endTimestamp: Long): Flow<List<WaterRecord>>
-
-    @Query("""
-        SELECT ((timestamp + :timezoneOffset) / 86400000) * 86400000 - :timezoneOffset AS dateMillis, 
-               SUM(amountMl) AS totalMl 
-        FROM water_logs 
-        WHERE timestamp >= :startTimestamp AND timestamp <= :endTimestamp
-        GROUP BY dateMillis 
-        ORDER BY dateMillis ASC
-    """)
-    fun getStatsBetweenDates(startTimestamp: Long, endTimestamp: Long, timezoneOffset: Long): Flow<List<DailyWaterStats>>
+    @Query("SELECT * FROM water_logs WHERE timestamp BETWEEN :startOfDay AND :endOfDay ORDER BY timestamp DESC")
+    fun getRecordsBetweenDates(startOfDay: Long, endOfDay: Long): Flow<List<WaterRecord>>
 
     @Query("SELECT drinkName, COUNT(id) as count FROM water_logs GROUP BY drinkName ORDER BY count DESC")
     fun getDrinkFrequencies(): Flow<List<DrinkFrequency>>
+
+    // QUESTA L'AVEVO CANCELLATA PER SBAGLIO (Serve al Backup!)
+    @Query("SELECT * FROM water_logs ORDER BY timestamp ASC")
+    suspend fun getAllRecords(): List<WaterRecord>
+
+    // Funzione Statistiche aggiornata con dateMillis
+    @Query("SELECT MAX(timestamp) as dateMillis, SUM(amountMl) as totalMl FROM water_logs WHERE timestamp BETWEEN :startOfDay AND :endOfDay GROUP BY date(timestamp/1000, 'unixepoch') ORDER BY dateMillis ASC")
+    fun getStatsBetweenDates(startOfDay: Long, endOfDay: Long): Flow<List<DailyWaterStats>>
+
+    // Controlla se esiste già un record con un determinato ID di Fitbit
+    @Query("SELECT COUNT(*) FROM water_logs WHERE externalId = :fitbitId")
+    suspend fun checkFitbitIdCount(fitbitId: String): Int
+
+    // Recupera tutti i record di oggi che sono collegati a Fitbit
+    @Query("SELECT * FROM water_logs WHERE timestamp BETWEEN :startOfDay AND :endOfDay AND externalId IS NOT NULL")
+    suspend fun getSyncedRecordsForToday(startOfDay: Long, endOfDay: Long): List<WaterRecord>
+
+    // Ora cerca la quantità "fisica" più usata (inputAmountMl)
+    @Query("SELECT inputAmountMl FROM water_logs WHERE drinkName = :drinkName GROUP BY inputAmountMl ORDER BY COUNT(inputAmountMl) DESC LIMIT 1")
+    suspend fun getMostFrequentAmount(drinkName: String): Int?
 }
-
-data class DailyWaterStats(
-    val dateMillis: Long,
-    val totalMl: Int
-)
-
-data class DrinkFrequency(
-    val drinkName: String,
-    val count: Int
-)

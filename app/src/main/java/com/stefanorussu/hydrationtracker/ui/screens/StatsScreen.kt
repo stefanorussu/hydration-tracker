@@ -29,6 +29,7 @@ import com.stefanorussu.hydrationtracker.data.local.WaterRecord
 import com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel
 import com.stefanorussu.hydrationtracker.ui.viewmodel.StatsViewModel
 import com.stefanorussu.hydrationtracker.ui.viewmodel.TimeTab
+import com.stefanorussu.hydrationtracker.ui.DrinkCatalog // Aggiunto per collegare colori e icone
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -206,15 +207,12 @@ fun StatsScreen(
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                         items(recordsList) { record ->
-                            val dynamicIcon = when (record.drinkName) {
-                                "Tè" -> Icons.Default.EmojiFoodBeverage
-                                "Caffè" -> Icons.Default.Coffee
-                                "Sport Drink" -> Icons.Default.FitnessCenter
-                                "Bibita" -> Icons.Default.LocalBar
-                                "Latte" -> Icons.Default.LocalCafe
-                                "Succo" -> Icons.Default.LocalFlorist
-                                else -> Icons.Default.LocalDrink
-                            }
+
+                            // MODIFICA QUI: Estraiamo colori e icone dal catalogo centrale!
+                            val drinkData = DrinkCatalog.options.find { it.name == record.drinkName }
+                            val dynamicIcon = drinkData?.icon ?: Icons.Default.LocalDrink
+                            val themeBg = drinkData?.theme?.bg ?: MaterialTheme.colorScheme.surfaceVariant
+                            val themeFg = drinkData?.theme?.fg ?: MaterialTheme.colorScheme.primary
 
                             Row(
                                 modifier = Modifier
@@ -223,8 +221,8 @@ fun StatsScreen(
                                     .padding(vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                                    Icon(imageVector = dynamicIcon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(themeBg), contentAlignment = Alignment.Center) {
+                                    Icon(imageVector = dynamicIcon, contentDescription = null, tint = themeFg, modifier = Modifier.size(20.dp))
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column {
@@ -275,6 +273,12 @@ fun StatsScreen(
 
         val dialogDateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
         val dialogTimeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+        val database = com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(context)
+        val waterDao = database.waterDao()
+        val fitbitRepository = remember {
+            com.stefanorussu.hydrationtracker.data.repository.FitbitRepository(context, waterDao)
+        }
 
         AlertDialog(
             onDismissRequest = { recordToEdit = null },
@@ -345,7 +349,7 @@ fun StatsScreen(
                         if (newVal > 0) {
                             viewModel.updateRecord(recordToEdit!!, newVal, editTimestamp)
                         } else {
-                            viewModel.deleteRecord(recordToEdit!!)
+                            viewModel.deleteRecord(recordToEdit!!, fitbitRepository)
                         }
                         recordToEdit = null
                     }
@@ -356,7 +360,7 @@ fun StatsScreen(
             dismissButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteRecord(recordToEdit!!)
+                        viewModel.deleteRecord(recordToEdit!!, fitbitRepository)
                         recordToEdit = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)

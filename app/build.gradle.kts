@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+}
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
 }
 
 android {
@@ -16,6 +24,14 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Estraiamo le password in modo sicuro dal file local.properties
+        val fitbitId = localProperties.getProperty("FITBIT_CLIENT_ID") ?: ""
+        val fitbitSecret = localProperties.getProperty("FITBIT_CLIENT_SECRET") ?: ""
+
+        // Le passiamo a Gradle racchiuse nelle virgolette escaped (\")
+        buildConfigField("String", "FITBIT_CLIENT_ID", "\"$fitbitId\"")
+        buildConfigField("String", "FITBIT_CLIENT_SECRET", "\"$fitbitSecret\"")
     }
 
     buildTypes {
@@ -27,15 +43,17 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
+    // UNIFICATO: Entrambe le funzionalità di build attivate qui
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 
@@ -97,6 +115,11 @@ dependencies {
     // Librerie per comunicare con Google Drive
     implementation("com.google.api-client:google-api-client-android:1.33.0")
     implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0")
+
+    // Retrofit per le chiamate API verso Fitbit
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.11.0")
 }
 
 // Questo codice forza Gradle a ignorare il task che sta causando il crash

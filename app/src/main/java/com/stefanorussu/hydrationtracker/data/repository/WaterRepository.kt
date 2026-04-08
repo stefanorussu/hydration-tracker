@@ -5,47 +5,47 @@ import com.stefanorussu.hydrationtracker.data.local.DrinkFrequency
 import com.stefanorussu.hydrationtracker.data.local.WaterDao
 import com.stefanorussu.hydrationtracker.data.local.WaterRecord
 import kotlinx.coroutines.flow.Flow
-import java.util.Calendar
 
 class WaterRepository(private val waterDao: WaterDao) {
 
-    // Manteniamo la versione con i parametri per la UI principale
-    fun getTodayTotal(start: Long, end: Long): Flow<Int?> = waterDao.getTodayTotal(start, end)
-
-    // Versione automatica SENZA parametri: calcola il tempo da sola
-    // Questo risolve istantaneamente l'errore nel file HydrationReminderWorker
-    fun getTodayTotal(): Flow<Int?> {
-        val calendar = Calendar.getInstance()
-        calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
-        val start = calendar.timeInMillis
-        calendar.set(Calendar.HOUR_OF_DAY, 23); calendar.set(Calendar.MINUTE, 59); calendar.set(Calendar.SECOND, 59); calendar.set(Calendar.MILLISECOND, 999)
-        val end = calendar.timeInMillis
-        return waterDao.getTodayTotal(start, end)
+    suspend fun insert(record: WaterRecord): Long {
+        return waterDao.insert(record)
     }
 
-    fun getDrinkFrequencies(): Flow<List<DrinkFrequency>> = waterDao.getDrinkFrequencies()
-
-    suspend fun insertWater(record: WaterRecord) {
-        waterDao.insert(record)
+    suspend fun updateFitbitId(recordId: Int, fitbitId: String) {
+        waterDao.updateFitbitId(recordId, fitbitId)
     }
 
     suspend fun updateWater(record: WaterRecord) {
-        waterDao.update(record)
-    }
-
-    suspend fun deleteTodayRecords() {
-        waterDao.deleteToday()
+        waterDao.updateWater(record)
     }
 
     suspend fun deleteWater(record: WaterRecord) {
-        waterDao.delete(record)
+        waterDao.deleteWater(record)
     }
 
-    fun getStatsBetweenDates(startTimestamp: Long, endTimestamp: Long, timezoneOffset: Long): Flow<List<DailyWaterStats>> {
-        return waterDao.getStatsBetweenDates(startTimestamp, endTimestamp, timezoneOffset)
+    fun getTodayTotal(startOfDay: Long, endOfDay: Long): Flow<Int?> {
+        return waterDao.getTodayTotal(startOfDay, endOfDay)
     }
 
-    fun getRecordsBetweenDates(startTimestamp: Long, endTimestamp: Long): Flow<List<WaterRecord>> {
-        return waterDao.getRecordsBetweenDates(startTimestamp, endTimestamp)
+    fun getRecordsBetweenDates(startOfDay: Long, endOfDay: Long): Flow<List<WaterRecord>> {
+        return waterDao.getRecordsBetweenDates(startOfDay, endOfDay)
+    }
+
+    fun getDrinkFrequencies(): Flow<List<DrinkFrequency>> {
+        return waterDao.getDrinkFrequencies()
+    }
+
+    // RIPRISTINATO
+    suspend fun getAllRecords(): List<WaterRecord> {
+        return waterDao.getAllRecords()
+    }
+
+    fun getStatsBetweenDates(startOfDay: Long, endOfDay: Long): Flow<List<DailyWaterStats>> {
+        return waterDao.getStatsBetweenDates(startOfDay, endOfDay)
+    }
+
+    suspend fun getMostFrequentAmount(drinkName: String): Int? {
+        return waterDao.getMostFrequentAmount(drinkName)
     }
 }

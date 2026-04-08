@@ -37,7 +37,7 @@ fun OnboardingScreen(
     var editWeight by remember { mutableStateOf("") }
     var editAge by remember { mutableStateOf("") }
     var editIsMale by remember { mutableStateOf(true) }
-    var editActivity by remember { mutableStateOf(ActivityLevel.MODERATE) } // Usiamo Moderato come media
+    var editActivity by remember { mutableStateOf(ActivityLevel.MODERATE) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -153,10 +153,9 @@ fun OnboardingScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // PULSANTE FINALE DI SALVATAGGIO E AVVIO
+            // PULSANTE FINALE DI SALVATAGGIO (Corretto)
             Button(
                 onClick = {
-                    // Valori di default di sicurezza se l'utente lascia i campi vuoti
                     val newWeight = editWeight.replace(",", ".").toFloatOrNull() ?: 70f
                     val newAge = editAge.toIntOrNull() ?: 25
 
@@ -167,21 +166,21 @@ fun OnboardingScreen(
                         activityLevel = editActivity
                     )
 
-                    // 1. Salva il profilo e calcola l'obiettivo
                     profileViewModel.updateProfile(context, newProfile)
 
-                    // 2. Segna che il primo avvio è completato
                     val prefs = context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
                     prefs.edit().putBoolean("is_first_run", false).apply()
 
-                    // 3. Passa alla Home
                     onFinish()
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 32.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp), // ← Modificatore corretto
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Text("CALCOLA E INIZIA", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
+
+            // Spazio esterno in fondo per evitare che il pulsante si attacchi al bordo schermo
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
