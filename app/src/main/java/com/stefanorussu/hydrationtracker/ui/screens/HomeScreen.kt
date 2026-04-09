@@ -21,13 +21,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -54,6 +56,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 
+data class SmartAction(val message: String, val drink: String, val amount: Int, val isActive: Boolean)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewModel) {
@@ -66,15 +70,20 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
 
     val isRefreshing by waterViewModel.isRefreshing.collectAsState()
 
+    val lastSyncTime by waterViewModel.lastSyncTime.collectAsState()
+    val smartMessageOverride by waterViewModel.smartMessageOverride.collectAsState()
+
     var selectedAmount by remember { mutableIntStateOf(250) }
     var customAmountText by remember { mutableStateOf("") }
     var recordToEdit by remember { mutableStateOf<WaterRecord?>(null) }
 
+    var isSmartModeActive by remember { mutableStateOf(true) }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showBottomSheet by remember { mutableStateOf(false) }
 
-    // CONNESSIONE ALLA SNACKBAR GLOBALE
     val globalSnackbar = LocalSnackbarHostState.current
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         waterViewModel.snackbarMessage.collect { message ->
@@ -97,23 +106,22 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
         mutableStateOf(sortedDrinkOptions.firstOrNull() ?: extendedDrinkOptions[0])
     }
 
-    LaunchedEffect(selectedDrink) {
-        waterViewModel.getSuggestedAmount(selectedDrink.name) { suggested ->
-            suggested?.let {
-                if (it == 200 || it == 250 || it == 500) {
-                    selectedAmount = it
-                    customAmountText = ""
-                } else {
-                    selectedAmount = 0
-                    customAmountText = it.toString()
-                }
-            }
+    // --- MEMORIA DELLE ABITUDINI ---
+    var frequentWaterAmount by remember { mutableIntStateOf(250) }
+    var frequentCoffeeAmount by remember { mutableIntStateOf(50) }
+
+    LaunchedEffect(dailyRecords) {
+        waterViewModel.getSuggestedAmount("Acqua") { suggested ->
+            if (suggested != null) frequentWaterAmount = suggested
+        }
+        waterViewModel.getSuggestedAmount("Caffè") { suggested ->
+            if (suggested != null) frequentCoffeeAmount = suggested
         }
     }
+    // -------------------------------
 
     val focusManager = LocalFocusManager.current
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val successColor = if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF388E3C)
 
@@ -130,10 +138,72 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
     )
     val percentage = (animatedProgress * 100).toInt()
 
+    val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+    val smartSuggestion = remember(dailyRecords, percentage, currentHour, frequentWaterAmount, frequentCoffeeAmount) {
+        val lastRecord = dailyRecords.firstOrNull()
+        val dehydratingDrinks = listOf("Caffè", "Birra", "Vino", "Cocktail", "Digestivo")
+
+        val currentTime = System.currentTimeMillis()
+        val lastRecordTime = lastRecord?.timestamp ?: 0L
+        val minutesSinceLastDrink = if (lastRecordTime > 0) (currentTime - lastRecordTime) / (1000 * 60) else 999L
+
+        when {
+            // 1. OBIETTIVO RAGGIUNTO (Silenzio)
+            percentage >= 100 -> {
+                SmartAction("Obiettivo raggiunto! Ottimo lavoro ✨", "Acqua", frequentWaterAmount, isActive = false)
+            }
+            // 2. COOLDOWN (Pausa anti-stress)
+            minutesSinceLastDrink < 40 && lastRecord?.drinkName !in dehydratingDrinks -> {
+                SmartAction("Riposo", "Acqua", frequentWaterAmount, isActive = false)
+            }
+            // 3. BILANCIAMENTO DISIDRATAZIONE
+            lastRecord != null && lastRecord.drinkName in dehydratingDrinks && minutesSinceLastDrink < 60 -> {
+                SmartAction("Il ${lastRecord.drinkName.lowercase()} disidrata. Bilanciamo? ✨", "Acqua", frequentWaterAmount, isActive = true)
+            }
+            // 4. MATTINA (Acqua prima, Caffè poi)
+            currentHour in 7..9 && dailyRecords.none { it.drinkName == "Acqua" } -> {
+                SmartAction("Inizia la giornata idratandoti! ✨", "Acqua", frequentWaterAmount, isActive = true)
+            }
+            currentHour in 7..9 && dailyRecords.none { it.drinkName == "Caffè" } -> {
+                SmartAction("Un buon caffè per iniziare? ☕", "Caffè", frequentCoffeeAmount, isActive = true)
+            }
+            // 5. DOPO PRANZO
+            currentHour in 13..14 && dailyRecords.none { it.drinkName == "Caffè" && it.timestamp > (currentTime - 4 * 3600 * 1000) } -> {
+                SmartAction("Pausa caffè post-pranzo? ☕", "Caffè", frequentCoffeeAmount, isActive = true)
+            }
+            // 6. SERA TARDI
+            currentHour in 21..23 -> {
+                SmartAction("Una tisana rilassante per la notte? 🌿", "Tisana", 250, isActive = true)
+            }
+            // 7. DEFAULT CON QUANTITÀ ABITUALE
+            else -> {
+                SmartAction("Mantieni il tuo ritmo! ✨", "Acqua", frequentWaterAmount, isActive = true)
+            }
+        }
+    }
+
+    val effectivelySmart = (isSmartModeActive && smartSuggestion.isActive) || smartMessageOverride != null
+
+    LaunchedEffect(selectedDrink) {
+        if (!effectivelySmart) {
+            waterViewModel.getSuggestedAmount(selectedDrink.name) { suggested ->
+                suggested?.let {
+                    if (it == 200 || it == 250 || it == 500) {
+                        selectedAmount = it
+                        customAmountText = ""
+                    } else {
+                        selectedAmount = 0
+                        customAmountText = it.toString()
+                    }
+                }
+            }
+        }
+    }
+
     val pullToRefreshState = rememberPullToRefreshState()
     if (pullToRefreshState.isRefreshing) {
         LaunchedEffect(true) {
-            waterViewModel.syncWithFitbit(isManual = true)
+            waterViewModel.syncWithFitbit(context, profileViewModel, isManual = true)
             delay(500)
             pullToRefreshState.endRefresh()
         }
@@ -143,7 +213,8 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                waterViewModel.syncWithFitbit(isManual = false)
+                waterViewModel.checkMidnight()
+                waterViewModel.syncWithFitbit(context, profileViewModel, isManual = false)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -154,11 +225,19 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Text("Hydration Tracker", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Hydration Tracker", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        lastSyncTime?.let { time ->
+                            Text(
+                                text = "Sincronizzato alle $time",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             )
         }
-        // RIMOSSO: Lo SnackbarHost locale non serve più!
     ) { padding ->
         Box(
             modifier = Modifier
@@ -253,7 +332,7 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         displayDrinks.forEach { drink ->
-                            val isSelected = selectedDrink == drink
+                            val isSelected = (!effectivelySmart && selectedDrink == drink)
                             val scaleAnim by animateFloatAsState(
                                 targetValue = if (isSelected) 1.1f else 1f,
                                 label = "Scale"
@@ -261,16 +340,18 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
 
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .clickable { selectedDrink = drink }
-                                    .scale(scaleAnim)
-                                    .weight(1f)
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(56.dp)
+                                        .scale(scaleAnim)
                                         .clip(CircleShape)
-                                        .background(drink.theme.bg),
+                                        .background(drink.theme.bg)
+                                        .clickable {
+                                            selectedDrink = drink
+                                            isSmartModeActive = false
+                                        },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -293,15 +374,14 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
 
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clickable { showBottomSheet = true }
-                                .weight(1f)
+                            modifier = Modifier.weight(1f)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(56.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable { showBottomSheet = true },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -322,7 +402,7 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                     }
                 }
 
-                item { Spacer(modifier = Modifier.height(16.dp)) }
+                item { Spacer(modifier = Modifier.height(8.dp)) }
 
                 item {
                     Text(
@@ -345,18 +425,19 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                     ) {
                         listOf(200, 250, 500).forEach { amount ->
                             Surface(
-                                selected = (selectedAmount == amount && customAmountText.isEmpty()),
+                                selected = (!effectivelySmart && selectedAmount == amount && customAmountText.isEmpty()),
                                 onClick = {
                                     selectedAmount = amount
                                     customAmountText = ""
+                                    isSmartModeActive = false
                                     focusManager.clearFocus()
                                 },
                                 modifier = Modifier
                                     .height(44.dp)
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (selectedAmount == amount && customAmountText.isEmpty()) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                                border = if (selectedAmount == amount && customAmountText.isEmpty()) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                color = if (!effectivelySmart && selectedAmount == amount && customAmountText.isEmpty()) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                                border = if (!effectivelySmart && selectedAmount == amount && customAmountText.isEmpty()) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
@@ -368,7 +449,7 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                             }
                         }
 
-                        val isCustomSelected = customAmountText.isNotEmpty() || (selectedAmount != 200 && selectedAmount != 250 && selectedAmount != 500)
+                        val isCustomSelected = !effectivelySmart && (customAmountText.isNotEmpty() || (selectedAmount != 200 && selectedAmount != 250 && selectedAmount != 500))
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isCustomSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
@@ -382,6 +463,7 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                                 onValueChange = {
                                     if (it.all { c -> c.isDigit() }) {
                                         customAmountText = it
+                                        isSmartModeActive = false
                                         if (it.isNotEmpty()) selectedAmount = 0
                                     }
                                 },
@@ -397,7 +479,12 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .wrapContentHeight(Alignment.CenterVertically)
-                                    .onFocusChanged { if (it.isFocused) selectedAmount = 0 },
+                                    .onFocusChanged {
+                                        if (it.isFocused) {
+                                            selectedAmount = 0
+                                            isSmartModeActive = false
+                                        }
+                                    },
                                 decorationBox = { innerTextField ->
                                     Box(contentAlignment = Alignment.Center) {
                                         if (customAmountText.isEmpty()) {
@@ -419,29 +506,80 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                 }
 
                 item {
-                    val inputAmount = customAmountText.toIntOrNull() ?: selectedAmount
-                    Button(
-                        onClick = {
-                            if (inputAmount > 0) {
-                                val actualHydration = (inputAmount * selectedDrink.hydrationFactor).toInt()
-                                waterViewModel.addWater(actualHydration, inputAmount, selectedDrink.name)
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                customAmountText = ""
-                                focusManager.clearFocus()
-                            }
-                        },
+                    val activeDrinkName = if (effectivelySmart) smartSuggestion.drink else selectedDrink.name
+                    val inputAmount = if (effectivelySmart) smartSuggestion.amount else (customAmountText.toIntOrNull() ?: selectedAmount)
+                    val activeDrinkData = extendedDrinkOptions.find { it.name == activeDrinkName } ?: extendedDrinkOptions[0]
+
+                    val infiniteTransition = rememberInfiniteTransition(label = "smart_border")
+                    val rotation by infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing)),
+                        label = "rotation"
+                    )
+
+                    val smartBrush = Brush.sweepGradient(
+                        colors = listOf(Color(0xFF4285F4), Color(0xFF9C27B0), Color(0xFFE91E63), Color(0xFF4285F4))
+                    )
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            .clip(RoundedCornerShape(16.dp))
+                            .then(
+                                if (effectivelySmart) {
+                                    Modifier.drawBehind {
+                                        rotate(rotation) {
+                                            drawCircle(brush = smartBrush, radius = size.maxDimension)
+                                        }
+                                    }
+                                } else Modifier.background(Color.Transparent)
+                            )
+                            .padding(if (effectivelySmart) 2.dp else 0.dp)
+                            .clip(RoundedCornerShape(if (effectivelySmart) 14.dp else 16.dp))
+                            .background(MaterialTheme.colorScheme.surface)
                     ) {
-                        Text(
-                            text = if (inputAmount > 0) "AGGIUNGI $inputAmount ML DI ${selectedDrink.name.uppercase(Locale.getDefault())}" else "INSERISCI QUANTITÀ",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (effectivelySmart) {
+                                val displayText = smartMessageOverride ?: smartSuggestion.message
+                                Text(
+                                    text = displayText,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                    textAlign = TextAlign.Center
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (inputAmount > 0) {
+                                        val actualHydration = (inputAmount * activeDrinkData.hydrationFactor).toInt()
+                                        waterViewModel.addWater(actualHydration, inputAmount, activeDrinkName)
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        customAmountText = ""
+                                        focusManager.clearFocus()
+                                        isSmartModeActive = true // Si riattiva, ma viene subito messo a nanna dal Cooldown di 40min
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 8.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text(
+                                    text = if (inputAmount > 0) "AGGIUNGI $inputAmount ML DI ${activeDrinkName.uppercase(Locale.getDefault())}" else "INSERISCI QUANTITÀ",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -551,10 +689,32 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                 )
 
                 val categories = listOf(
-                    "Idratazione Pura" to listOf(extendedDrinkOptions.find { it.name == "Acqua" }!!, extendedDrinkOptions.find { it.name == "Tisana" }!!, extendedDrinkOptions.find { it.name == "Tè" }!!, extendedDrinkOptions.find { it.name == "Succo" }!!),
-                    "Energia & Fitness" to listOf(extendedDrinkOptions.find { it.name == "Caffè" }!!, extendedDrinkOptions.find { it.name == "Sport Drink" }!!, extendedDrinkOptions.find { it.name == "Proteine" }!!, extendedDrinkOptions.find { it.name == "Bibita" }!!),
-                    "Nutrizione & Pasti" to listOf(extendedDrinkOptions.find { it.name == "Latte" }!!, extendedDrinkOptions.find { it.name == "Cioccolata" }!!, extendedDrinkOptions.find { it.name == "Yogurt" }!!, extendedDrinkOptions.find { it.name == "Brodo" }!!),
-                    "Alcolici" to listOf(extendedDrinkOptions.find { it.name == "Birra" }!!, extendedDrinkOptions.find { it.name == "Vino" }!!, extendedDrinkOptions.find { it.name == "Cocktail" }!!)
+                    "Idratazione Pura" to listOfNotNull(
+                        extendedDrinkOptions.find { it.name == "Acqua" },
+                        extendedDrinkOptions.find { it.name == "Tè" },
+                        extendedDrinkOptions.find { it.name == "Limonata" }
+                    ),
+                    "Caffetteria" to listOfNotNull(
+                        extendedDrinkOptions.find { it.name == "Caffè" },
+                        extendedDrinkOptions.find { it.name == "Cappuccino" },
+                        extendedDrinkOptions.find { it.name == "Cioccolata" } // Spostata qui!
+                    ),
+                    "Energia & Fitness" to listOfNotNull(
+                        extendedDrinkOptions.find { it.name == "Sport Drink" }, // Rinominato!
+                        extendedDrinkOptions.find { it.name == "Energy" },
+                        extendedDrinkOptions.find { it.name == "Frullato" }
+                    ),
+                    "Pasti & Nutrizione" to listOfNotNull(
+                        extendedDrinkOptions.find { it.name == "Latte" },
+                        extendedDrinkOptions.find { it.name == "Yogurt" },
+                        extendedDrinkOptions.find { it.name == "Succo" }
+                    ),
+                    "Alcolici e Relax" to listOfNotNull(
+                        extendedDrinkOptions.find { it.name == "Birra" },
+                        extendedDrinkOptions.find { it.name == "Vino" },
+                        extendedDrinkOptions.find { it.name == "Cocktail" },
+                        extendedDrinkOptions.find { it.name == "Digestivo" }
+                    )
                 )
 
                 Column(
@@ -562,26 +722,29 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     categories.forEach { (categoryName, drinks) ->
-                        Column {
-                            Text(
-                                text = categoryName.uppercase(),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                drinks.forEach { drink ->
-                                    DrinkGridItem(
-                                        drink = drink,
-                                        onClick = {
-                                            selectedDrink = drink
-                                            showBottomSheet = false
-                                        }
-                                    )
+                        if (drinks.isNotEmpty()) {
+                            Column {
+                                Text(
+                                    text = categoryName.uppercase(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    drinks.forEach { drink ->
+                                        DrinkGridItem(
+                                            drink = drink,
+                                            onClick = {
+                                                selectedDrink = drink
+                                                isSmartModeActive = false
+                                                showBottomSheet = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -708,10 +871,12 @@ fun DrinkGridItem(drink: DrinkOption, onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(64.dp)
-            .clickable { onClick() }
     ) {
         Surface(
-            modifier = Modifier.size(52.dp),
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .clickable { onClick() },
             shape = CircleShape,
             color = drink.theme.bg
         ) {

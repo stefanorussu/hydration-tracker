@@ -12,28 +12,30 @@ import kotlinx.coroutines.launch
 
 class NotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // Determina la quantità in base al bottone premuto
-        val amount = when (intent.action) {
-            "ADD_WATER_100" -> 100
-            "ADD_WATER_250" -> 250
-            "ADD_WATER_500" -> 500
-            else -> return // Azione sconosciuta, si ferma
-        }
+        val action = intent.action ?: return
 
-        val db = AppDatabase.getDatabase(context)
+        // Ascoltiamo solo l'azione "Smart"
+        if (action == "ADD_SMART_DRINK") {
+            // Estraiamo i dati intelligenti che ci ha passato la notifica
+            val amount = intent.getIntExtra("EXTRA_AMOUNT", 250)
+            val drinkName = intent.getStringExtra("EXTRA_DRINK_NAME") ?: "Acqua"
 
-        // Salva l'acqua nel database in background
-        CoroutineScope(Dispatchers.IO).launch {
-            db.waterDao().insert(
-                WaterRecord(
-                    amountMl = amount,
-                    timestamp = System.currentTimeMillis(),
-                    drinkName = "Acqua"
+            val db = AppDatabase.getDatabase(context)
+
+            // Salva l'acqua nel database in background
+            CoroutineScope(Dispatchers.IO).launch {
+                db.waterDao().insert(
+                    WaterRecord(
+                        amountMl = amount,
+                        inputAmountMl = amount,
+                        timestamp = System.currentTimeMillis(),
+                        drinkName = drinkName
+                    )
                 )
-            )
-        }
+            }
 
-        // Chiude la notifica dopo il click sul bottone rapido
-        NotificationManagerCompat.from(context).cancel(1001)
+            // Chiude la notifica dopo aver cliccato "Aggiungi"
+            NotificationManagerCompat.from(context).cancel(1001)
+        }
     }
 }

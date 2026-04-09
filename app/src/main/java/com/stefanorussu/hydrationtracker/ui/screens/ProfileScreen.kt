@@ -38,6 +38,19 @@ fun ProfileScreen(
     var editIsMale by remember { mutableStateOf(profile.isMale) }
     var editActivity by remember { mutableStateOf(profile.activityLevel) }
 
+    // --- LOGICA DEL TASTO SALVA INTELLIGENTE ---
+    // Controlla se i dati correnti inseriti sono diversi da quelli salvati nel profilo
+    val isModified = remember(editWeight, editAge, editIsMale, editActivity, profile) {
+        val currentWeight = editWeight.replace(",", ".").toFloatOrNull()
+        val currentAge = editAge.toIntOrNull()
+
+        currentWeight != null && currentWeight != profile.weightKg ||
+                currentAge != null && currentAge != profile.age ||
+                editIsMale != profile.isMale ||
+                editActivity != profile.activityLevel
+    }
+    // -------------------------------------------
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -157,7 +170,8 @@ fun ProfileScreen(
                     onBackClick()
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 16.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                enabled = isModified // IL PULSANTE SI ATTIVA SOLO SE CI SONO MODIFICHE
             ) {
                 Text("Salva Profilo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }

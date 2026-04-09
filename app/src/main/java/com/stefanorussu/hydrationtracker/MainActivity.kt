@@ -15,6 +15,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.stefanorussu.hydrationtracker.data.backup.BackupRepository
 import com.stefanorussu.hydrationtracker.data.backup.CryptoManager
 import com.stefanorussu.hydrationtracker.data.backup.GoogleDriveManager
@@ -31,19 +34,19 @@ import com.stefanorussu.hydrationtracker.ui.theme.HydrationTrackerTheme
 import com.stefanorussu.hydrationtracker.ui.viewmodel.*
 import com.stefanorussu.hydrationtracker.ui.GlobalSnackbarProvider
 import com.stefanorussu.hydrationtracker.ui.LocalSnackbarHostState
+import com.stefanorussu.hydrationtracker.worker.HydrationReminderWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
-    // Prepariamo una variabile per conservare il codice di Fitbit in attesa che la UI sia pronta
     private var pendingFitbitCode: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Catturiamo il codice di ritorno da Fitbit (se c'è)
         val uri = intent?.data
         if (uri != null && uri.scheme == "hydrationtracker" && uri.host == "callback") {
             pendingFitbitCode = uri.getQueryParameter("code")
@@ -65,6 +68,18 @@ class MainActivity : ComponentActivity() {
         val fitbitRepository = FitbitRepository(context, waterDao)
         val fitbitAuthManager = FitbitAuthManager(this)
 
+        // --- ATTIVAZIONE WORKMANAGER (NOTIFICHE BACKGROUND) ---
+        val workRequest = PeriodicWorkRequestBuilder<HydrationReminderWorker>(2, TimeUnit.HOURS)
+            .setInitialDelay(1, TimeUnit.HOURS) // Aspetta un'ora prima del primo controllo
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "SmartHydrationWorker",
+            ExistingPeriodicWorkPolicy.KEEP, // Se esiste già, non sovrascriverlo per non sprecare batteria
+            workRequest
+        )
+        // ------------------------------------------------------
+
         setContent {
             val settingsViewModel: SettingsViewModel = viewModel(factory = SettingsViewModelFactory(themePrefsManager, backupRepository, backupPrefsManager, driveManager))
             val waterViewModel: WaterViewModel = viewModel(factory = WaterViewModelFactory(waterRepository, fitbitRepository))
@@ -81,7 +96,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 HydrationTrackerTheme(darkTheme = useDarkTheme) {
-                    // AVVOLGIAMO TUTTA L'APP NEL NUOVO SISTEMA DI SNACKBAR GLOBALI
                     GlobalSnackbarProvider {
                         val snackbarHost = LocalSnackbarHostState.current
                         val coroutineScope = rememberCoroutineScope()
@@ -90,7 +104,6 @@ class MainActivity : ComponentActivity() {
 
                         var isFirstRun by remember { mutableStateOf(prefs.getBoolean("is_first_run", true)) }
 
-                        // Eseguiamo il login a Fitbit ORA che la UI è pronta per mostrare i messaggi
                         androidx.compose.runtime.LaunchedEffect(pendingFitbitCode) {
                             pendingFitbitCode?.let { code ->
                                 snackbarHost.showSnackbar("Collegamento a Fitbit in corso...")
@@ -100,7 +113,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     snackbarHost.showSnackbar("Errore durante il collegamento. ⚠️")
                                 }
-                                pendingFitbitCode = null // Svuotiamo dopo averlo usato
+                                pendingFitbitCode = null
                             }
                         }
 

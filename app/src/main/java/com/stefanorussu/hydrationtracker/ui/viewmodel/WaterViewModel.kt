@@ -1,5 +1,6 @@
 package com.stefanorussu.hydrationtracker.ui.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stefanorussu.hydrationtracker.data.local.DrinkFrequency
@@ -11,37 +12,69 @@ import java.util.Calendar
 import com.stefanorussu.hydrationtracker.data.repository.FitbitRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class WaterViewModel(
     private val waterRepository: WaterRepository,
     private val fitbitRepository: FitbitRepository? = null
 ) : ViewModel() {
 
-    private val startOfDay: Long
-    private val endOfDay: Long
+    private val _dayStart = MutableStateFlow(calculateStartOfDay())
 
-    init {
+    // --- VARIABILI PER LA UI DELLA HOME ---
+    private val _lastSyncTime = MutableStateFlow<String?>(fitbitRepository?.getLastSyncTime())
+    val lastSyncTime: StateFlow<String?> = _lastSyncTime
+
+    private val _smartMessageOverride = MutableStateFlow<String?>(null)
+    val smartMessageOverride: StateFlow<String?> = _smartMessageOverride
+    // --------------------------------------
+
+    private fun calculateStartOfDay(): Long {
         val calendar = Calendar.getInstance()
         calendar.set(Calendar.HOUR_OF_DAY, 0)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
-        startOfDay = calendar.timeInMillis
+        return calendar.timeInMillis
+    }
 
+    private fun calculateEndOfDay(): Long {
+        val calendar = Calendar.getInstance()
         calendar.set(Calendar.HOUR_OF_DAY, 23)
         calendar.set(Calendar.MINUTE, 59)
         calendar.set(Calendar.SECOND, 59)
         calendar.set(Calendar.MILLISECOND, 999)
-        endOfDay = calendar.timeInMillis
+        return calendar.timeInMillis
     }
 
-    val todayTotal: Flow<Int?> = waterRepository.getTodayTotal(startOfDay, endOfDay)
-    val dailyRecords: Flow<List<WaterRecord>> = waterRepository.getRecordsBetweenDates(startOfDay, endOfDay)
+    fun checkMidnight() {
+        val newStart = calculateStartOfDay()
+        if (_dayStart.value != newStart) {
+            _dayStart.value = newStart
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val todayTotal: Flow<Int?> = _dayStart.flatMapLatest { start ->
+        waterRepository.getTodayTotal(start, calculateEndOfDay())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val dailyRecords: Flow<List<WaterRecord>> = _dayStart.flatMapLatest { start ->
+        waterRepository.getRecordsBetweenDates(start, calculateEndOfDay())
+    }
+
     val drinkFrequencies: Flow<List<DrinkFrequency>> = waterRepository.getDrinkFrequencies()
 
     fun addWater(amount: Int, originalInput: Int, drinkName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Creiamo il nuovo record con la distinzione tra acqua (amount) e liquido reale (originalInput)
             val newRecord = WaterRecord(
                 amountMl = amount,
                 inputAmountMl = originalInput,
@@ -49,25 +82,17 @@ class WaterViewModel(
                 drinkName = drinkName
             )
 
-            // Salviamo il nuovo record e otteniamo l'ID dal database
             val generatedId = waterRepository.insert(newRecord)
 
-            // Proviamo a inviare a Fitbit
             fitbitRepository?.let { fitbit ->
-                // NOTA: Inviamo ad Fitbit l'acqua pura calcolata (amount), non il liquido lordo!
                 val fitbitLogId = fitbit.syncSingleRecordToFitbit(amount, newRecord.timestamp)
 
                 if (fitbitLogId != null) {
-                    android.util.Log.d("FITBIT_SYNC", "Fitbit ha risposto con ID: $fitbitLogId. Lo salvo nel DB!")
-
-                    // Aggiorniamo la riga locale con l'ID di Fitbit
                     val recordWithFitbitId = newRecord.copy(
                         id = generatedId.toInt(),
                         externalId = fitbitLogId
                     )
                     waterRepository.updateWater(recordWithFitbitId)
-                } else {
-                    android.util.Log.e("FITBIT_SYNC", "Fitbit non ha restituito un ID valido.")
                 }
             }
         }
@@ -80,42 +105,53 @@ class WaterViewModel(
     }
 
     fun deleteWater(record: WaterRecord) {
-        android.util.Log.d("FITBIT_SYNC", "👉 TASTO ELIMINA (HOME) PREMUTO! Cerco di eliminare: ${record.drinkName}")
-
         viewModelScope.launch(Dispatchers.IO) {
             waterRepository.deleteWater(record)
 
             if (record.externalId != null) {
-                android.util.Log.d("FITBIT_SYNC", "Record con ID Fitbit ${record.externalId} trovato. Chiamo i server...")
                 fitbitRepository?.let { fitbit ->
-                    val success = fitbit.deleteRecordFromFitbit(record.externalId)
-                    if (success) {
-                        android.util.Log.d("FITBIT_SYNC", "SUCCESSO! Acqua eliminata da Fitbit dalla Home.")
-                    } else {
-                        android.util.Log.e("FITBIT_SYNC", "Eliminazione su Fitbit fallita.")
-                    }
+                    fitbit.deleteRecordFromFitbit(record.externalId)
                 }
-            } else {
-                android.util.Log.w("FITBIT_SYNC", "ATTENZIONE: Questo record ha l'ID vuoto! Non chiamo Fitbit.")
             }
         }
     }
 
-    private val _isRefreshing = kotlinx.coroutines.flow.MutableStateFlow(false)
-    val isRefreshing: kotlinx.coroutines.flow.StateFlow<Boolean> = _isRefreshing
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
     private val _snackbarMessage = kotlinx.coroutines.flow.MutableSharedFlow<String>()
     val snackbarMessage: kotlinx.coroutines.flow.SharedFlow<String> = _snackbarMessage
 
-    fun syncWithFitbit(isManual: Boolean = false) {
+    // --- NUOVA SINCRONIZZAZIONE INTELLIGENTE ---
+    fun syncWithFitbit(context: Context, profileViewModel: ProfileViewModel, isManual: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             fitbitRepository?.let { fitbit ->
                 if (isManual) _isRefreshing.value = true
 
-                android.util.Log.d("FITBIT_SYNC", "Inizio sincronizzazione (Manuale: $isManual)...")
-
+                // 1. Sincronizza l'acqua
                 val db = com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(fitbit.context)
                 val success = fitbit.syncTodayWater(db.waterDao())
+
+                // 2. Sincronizza il Peso
+                val fitbitWeight = fitbit.fetchFitbitWeight()
+                if (fitbitWeight != null) {
+                    val didWeightChange = profileViewModel.updateWeightFromFitbit(context, fitbitWeight)
+                    if (didWeightChange) {
+                        // Accende il messaggio speciale sul Pannello Smart per 6 secondi
+                        _smartMessageOverride.value = "Peso aggiornato da Fitbit. Obiettivo ricalcolato! ✨"
+                        launch(Dispatchers.Main) {
+                            delay(6000)
+                            _smartMessageOverride.value = null
+                        }
+                    }
+                }
+
+                // 3. Aggiorna orario TopBar
+                if (success) {
+                    val timeString = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                    fitbit.saveLastSyncTime(timeString)
+                    _lastSyncTime.value = timeString
+                }
 
                 if (isManual) {
                     _isRefreshing.value = false
@@ -128,6 +164,7 @@ class WaterViewModel(
             }
         }
     }
+    // -------------------------------------------
 
     fun getSuggestedAmount(drinkName: String, onResult: (Int?) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {

@@ -46,12 +46,18 @@ fun SettingsScreen(
 
     val isLocalBackupEnabled by settingsViewModel.isLocalBackupEnabled.collectAsState()
 
-    // CONNESSIONE ALLA SNACKBAR GLOBALE
     val globalSnackbar = LocalSnackbarHostState.current
     val coroutineScope = rememberCoroutineScope()
 
     val fitbitAuthManager = remember { FitbitAuthManager(context) }
     var isFitbitLinked by remember { mutableStateOf(fitbitAuthManager.isLinked()) }
+
+    // --- FIX SCORRIMENTO ---
+    val scrollState = rememberScrollState()
+    LaunchedEffect(Unit) {
+        scrollState.scrollTo(0) // Torna sempre in cima quando apri il tab!
+    }
+    // -----------------------
 
     val backupMessage by settingsViewModel.backupMessage.collectAsState()
     LaunchedEffect(backupMessage) {
@@ -100,24 +106,19 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // Sostituisci "TopAppBar" con "CenterAlignedTopAppBar"
+            CenterAlignedTopAppBar(
                 title = {
                     Text("Impostazioni", fontWeight = FontWeight.Bold)
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
-                    }
                 }
             )
         }
-        // RIMOSSO: Lo SnackbarHost locale non serve più!
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
 
@@ -308,6 +309,19 @@ fun SettingsScreen(
                     Text("Ripristina da Drive", fontWeight = FontWeight.Bold)
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "🔒 Privacy garantita: Database locale. Nessun dato lascia il telefono senza il tuo permesso.",
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+            )
+
             Spacer(modifier = Modifier.height(32.dp))
         }
     }

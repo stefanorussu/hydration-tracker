@@ -57,12 +57,25 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
     private val _summaryValue = MutableStateFlow(0)
     val summaryValue: StateFlow<Int> = _summaryValue.asStateFlow()
 
+    // --- FIX BLOCCO DEL FUTURO ---
+    private val _isNextEnabled = MutableStateFlow(false)
+    val isNextEnabled: StateFlow<Boolean> = _isNextEnabled.asStateFlow()
+    // -----------------------------
+
     private var dataJob: Job? = null
     private var recordsJob: Job? = null
 
     init {
         loadDataForCurrentTab()
     }
+
+    // --- FIX RESET ALL'APERTURA E MEZZANOTTE ---
+    fun resetToToday() {
+        _currentTab.value = TimeTab.DAY
+        _currentDate.value = Calendar.getInstance()
+        loadDataForCurrentTab()
+    }
+    // -------------------------------------------
 
     fun setTab(tab: TimeTab) {
         _currentTab.value = tab
@@ -92,7 +105,6 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
         loadDataForCurrentTab()
     }
 
-    // AGGIORNATO: Modifica quantità e timestamp
     fun updateRecord(record: WaterRecord, newAmount: Int, newTimestamp: Long) {
         viewModelScope.launch {
             repository.updateWater(record.copy(amountMl = newAmount, timestamp = newTimestamp))
@@ -100,19 +112,15 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
         }
     }
 
-    // Ho aggiunto il fitbitRepository come parametro
     fun deleteRecord(
         record: com.stefanorussu.hydrationtracker.data.local.WaterRecord,
         fitbitRepository: com.stefanorussu.hydrationtracker.data.repository.FitbitRepository
     ) {
-        // URLO DI CONTROLLO: Se non vedi questo, il tasto non sta chiamando questa funzione!
         android.util.Log.d("FITBIT_SYNC", "👉 TASTO ELIMINA PREMUTO! Cerco di eliminare: ${record.drinkName}")
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // 1. Elimina fisicamente dal tuo telefono
             repository.deleteWater(record)
 
-            // 2. Controllo Fitbit
             if (record.externalId != null) {
                 android.util.Log.d("FITBIT_SYNC", "Record con ID ${record.externalId} trovato. Chiamo i server Fitbit...")
                 val success = fitbitRepository.deleteRecordFromFitbit(record.externalId)
@@ -125,7 +133,6 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
                 android.util.Log.w("FITBIT_SYNC", "ATTENZIONE: Questo record ha l'ID vuoto! Non chiamo Fitbit.")
             }
 
-            // 3. Ricarica lo schermo
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 loadDataForCurrentTab()
             }
@@ -135,6 +142,8 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
     private fun loadDataForCurrentTab() {
         dataJob?.cancel()
         recordsJob?.cancel()
+
+        updateNextButtonState() // Calcola se la freccia DESTRA deve essere disabilitata
 
         val calendar = _currentDate.value.clone() as Calendar
         var startTimestamp = 0L
@@ -194,7 +203,6 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
         }
 
         dataJob = viewModelScope.launch {
-            // CORRETTO: rimosso tzOffset. Ora i parametri combaciano perfettamente!
             repository.getStatsBetweenDates(startTimestamp, endTimestamp).collect { stats ->
                 if (_currentTab.value != TimeTab.DAY) {
                     processAggregatedData(stats, _currentTab.value, startTimestamp)
@@ -202,6 +210,36 @@ class StatsViewModel(private val repository: WaterRepository) : ViewModel() {
             }
         }
     }
+
+    // --- FUNZIONE CHE CALCOLA SE SIAMO NEL PRESENTE ---
+    private fun updateNextButtonState() {
+        val now = Calendar.getInstance()
+        val viewed = _currentDate.value
+
+        _isNextEnabled.value = when (_currentTab.value) {
+            TimeTab.DAY -> {
+                viewed.get(Calendar.YEAR) < now.get(Calendar.YEAR) ||
+                        (viewed.get(Calendar.YEAR) == now.get(Calendar.YEAR) && viewed.get(Calendar.DAY_OF_YEAR) < now.get(Calendar.DAY_OF_YEAR))
+            }
+            TimeTab.WEEK -> {
+                val viewedStart = viewed.clone() as Calendar
+                viewedStart.set(Calendar.DAY_OF_WEEK, viewedStart.firstDayOfWeek)
+                val nowStart = now.clone() as Calendar
+                nowStart.set(Calendar.DAY_OF_WEEK, nowStart.firstDayOfWeek)
+
+                viewedStart.get(Calendar.YEAR) < nowStart.get(Calendar.YEAR) ||
+                        (viewedStart.get(Calendar.YEAR) == nowStart.get(Calendar.YEAR) && viewedStart.get(Calendar.WEEK_OF_YEAR) < nowStart.get(Calendar.WEEK_OF_YEAR))
+            }
+            TimeTab.MONTH -> {
+                viewed.get(Calendar.YEAR) < now.get(Calendar.YEAR) ||
+                        (viewed.get(Calendar.YEAR) == now.get(Calendar.YEAR) && viewed.get(Calendar.MONTH) < now.get(Calendar.MONTH))
+            }
+            TimeTab.YEAR -> {
+                viewed.get(Calendar.YEAR) < now.get(Calendar.YEAR)
+            }
+        }
+    }
+    // --------------------------------------------------
 
     private fun processAggregatedData(rawStats: List<DailyWaterStats>, tab: TimeTab, startTimestamp: Long) {
         val list = mutableListOf<DrillDownItem>()

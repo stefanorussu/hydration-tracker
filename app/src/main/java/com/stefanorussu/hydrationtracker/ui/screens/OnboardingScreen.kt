@@ -153,7 +153,7 @@ fun OnboardingScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // PULSANTE FINALE DI SALVATAGGIO (Corretto)
+            // PULSANTE FINALE DI SALVATAGGIO (Con Protezione)
             Button(
                 onClick = {
                     val newWeight = editWeight.replace(",", ".").toFloatOrNull() ?: 70f
@@ -173,8 +173,9 @@ fun OnboardingScreen(
 
                     onFinish()
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp), // ← Modificatore corretto
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                enabled = editWeight.isNotEmpty() && editAge.isNotEmpty() // <-- L'UNICA RIGA AGGIUNTA
             ) {
                 Text("CALCOLA E INIZIA", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }

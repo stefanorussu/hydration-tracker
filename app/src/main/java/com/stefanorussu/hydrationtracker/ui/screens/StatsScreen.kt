@@ -25,11 +25,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.stefanorussu.hydrationtracker.data.local.WaterRecord
 import com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel
 import com.stefanorussu.hydrationtracker.ui.viewmodel.StatsViewModel
 import com.stefanorussu.hydrationtracker.ui.viewmodel.TimeTab
-import com.stefanorussu.hydrationtracker.ui.DrinkCatalog // Aggiunto per collegare colori e icone
+import com.stefanorussu.hydrationtracker.ui.DrinkCatalog
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -50,14 +53,28 @@ fun StatsScreen(
     val chartItems by viewModel.chartItems.collectAsState()
     val summaryValue by viewModel.summaryValue.collectAsState()
 
+    val isNextEnabled by viewModel.isNextEnabled.collectAsState()
+
     val profile by profileViewModel.userProfile.collectAsState()
     val dailyGoalMl = profileViewModel.calculateGoal(profile).takeIf { it > 0 } ?: 2000
 
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val fullDayFormatter = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
     val context = LocalContext.current
     val successColor = if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF388E3C)
 
     var recordToEdit by remember { mutableStateOf<WaterRecord?>(null) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.resetToToday()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     fun formatK(value: Int): String {
         return if (value >= 1000) {
@@ -66,6 +83,69 @@ fun StatsScreen(
             else String.format(Locale.US, "%.1fk", kValue)
         } else {
             value.toString()
+        }
+    }
+
+    val insightMessage = remember(currentTab, recordsList, chartItems, listItems, summaryValue, dailyGoalMl) {
+        fun formatVolume(ml: Int): String {
+            return if (ml >= 1000) {
+                val liters = ml / 1000f
+                if (liters % 1f == 0f) String.format(Locale.US, "%.0f Litri", liters)
+                else String.format(Locale.US, "%.1f Litri", liters)
+            } else {
+                "$ml ml"
+            }
+        }
+
+        when (currentTab) {
+            TimeTab.DAY -> {
+                val coffees = recordsList.count { it.drinkName == "Caffè" }
+                val lastRecord = recordsList.maxByOrNull { it.timestamp }
+                val hoursSinceLast = lastRecord?.let { (System.currentTimeMillis() - it.timestamp) / (1000 * 60 * 60) } ?: 0
+
+                when {
+                    summaryValue >= dailyGoalMl -> "Ottimo lavoro, hai raggiunto il tuo obiettivo di idratazione."
+                    coffees >= 3 -> "Oggi hai preso $coffees caffè. Ricorda di bilanciare con l'acqua."
+                    hoursSinceLast >= 3 && summaryValue > 0 -> "Non bevi da ${hoursSinceLast} ore. È il momento perfetto per un bicchiere."
+                    summaryValue >= dailyGoalMl / 2 -> "Sei a buon punto, hai superato la metà del tuo obiettivo giornaliero."
+                    summaryValue == 0 -> "Pronto a iniziare? Registra il tuo primo bicchiere della giornata."
+                    else -> "Sei sulla strada giusta, continua a idratarti con regolarità."
+                }
+            }
+            TimeTab.WEEK -> {
+                val bestDayItem = listItems.filter { !it.isAverage }.maxByOrNull { it.value }
+                val daysReached = chartItems.count { it.value >= dailyGoalMl }
+
+                val fullDayName = bestDayItem?.let {
+                    fullDayFormatter.format(Date(it.timestamp)).replaceFirstChar { char ->
+                        if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString()
+                    }
+                } ?: ""
+
+                when {
+                    daysReached == 7 -> "Che settimana! Hai raggiunto l'obiettivo tutti i giorni."
+                    daysReached >= 4 -> "Bella costanza, hai raggiunto l'obiettivo $daysReached giorni su 7."
+                    bestDayItem != null && bestDayItem.value > 0 -> "Il tuo giorno migliore è stato $fullDayName con ${formatVolume(bestDayItem.value)}."
+                    else -> "Ogni giorno conta. Cerca di mantenere il ritmo per migliorare la tua settimana."
+                }
+            }
+            TimeTab.MONTH -> {
+                val daysReached = chartItems.count { it.value >= dailyGoalMl && it.value > 0 }
+                val totalVolume = chartItems.sumOf { it.value }
+
+                when {
+                    daysReached >= 20 -> "Mese fantastico! Hai raggiunto l'obiettivo per ben $daysReached giorni."
+                    totalVolume > 0 -> "Fino ad ora, questo mese hai bevuto un totale di ${formatVolume(totalVolume)}."
+                    else -> "Un nuovo mese è iniziato. Ricomincia a tracciare la tua idratazione."
+                }
+            }
+            TimeTab.YEAR -> {
+                when {
+                    summaryValue >= dailyGoalMl -> "Il tuo andamento annuale è eccellente, hai una media perfetta."
+                    summaryValue > 0 -> "La tua media di quest'anno si aggira intorno a ${formatVolume(summaryValue)} al giorno."
+                    else -> "Tieni traccia della tua idratazione per sbloccare le statistiche annuali."
+                }
+            }
         }
     }
 
@@ -93,31 +173,46 @@ fun StatsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { viewModel.shiftTime(false) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Precedente", tint = MaterialTheme.colorScheme.onSurface) }
+                IconButton(onClick = { viewModel.shiftTime(false) }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Precedente", tint = MaterialTheme.colorScheme.onSurface)
+                }
                 Text(text = dateRangeText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                IconButton(onClick = { viewModel.shiftTime(true) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Successivo", tint = MaterialTheme.colorScheme.onSurface) }
+
+                IconButton(
+                    onClick = { viewModel.shiftTime(true) },
+                    enabled = isNextEnabled
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Successivo",
+                        tint = if (isNextEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                }
             }
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(text = "$summaryValue ml", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    Text(text = if (currentTab == TimeTab.DAY) "Totale in questo giorno" else "Media giornaliera in questo periodo", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (summaryValue > 0) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        val isGoalReached = summaryValue >= dailyGoalMl
-                        Surface(
-                            color = if (isGoalReached) successColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.error.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = if (isGoalReached) "🎯 Raggiunto" else "⚠️ Sotto obiettivo",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isGoalReached) successColor else MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
+                Text(
+                    text = if (currentTab == TimeTab.DAY) "Totale in questo giorno" else "Media giornaliera in questo periodo",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = insightMessage,
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
 
@@ -207,8 +302,6 @@ fun StatsScreen(
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                         items(recordsList) { record ->
-
-                            // MODIFICA QUI: Estraiamo colori e icone dal catalogo centrale!
                             val drinkData = DrinkCatalog.options.find { it.name == record.drinkName }
                             val dynamicIcon = drinkData?.icon ?: Icons.Default.LocalDrink
                             val themeBg = drinkData?.theme?.bg ?: MaterialTheme.colorScheme.surfaceVariant

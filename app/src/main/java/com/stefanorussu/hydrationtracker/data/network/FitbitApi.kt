@@ -75,6 +75,9 @@ interface FitbitApi {
         @Header("Authorization") authHeader: String,
         @Path("date") dateString: String // Formato "yyyy-MM-dd"
     ): FitbitWaterSummaryResponse
+
+    @GET("1/user/-/profile.json")
+    suspend fun getUserProfile(@Header("Authorization") authHeader: String): FitbitProfileResponse
 }
 
 // Contenitori per leggere la risposta di Fitbit (Mettili in fondo, fuori dalla classe)
@@ -86,3 +89,6 @@ data class FitbitWaterLogEntry(
     val logId: Long,
     val amount: Int
 )
+
+data class FitbitProfileResponse(val user: FitbitUser)
+data class FitbitUser(val weight: Float)

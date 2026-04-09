@@ -19,17 +19,26 @@ class ProfileViewModel(private val profileManager: UserProfileManager) : ViewMod
             initialValue = UserProfile()
         )
 
-    // 1. Aggiunto il Context come parametro
     fun updateProfile(context: Context, newProfile: UserProfile) {
         viewModelScope.launch {
-            // Salva il profilo nel DataStore
             profileManager.saveUserProfile(newProfile)
 
-            // 2. Calcola l'obiettivo e lo salva nelle SharedPreferences per il Worker
             val nuovoObiettivo = calculateGoal(newProfile)
             val prefs = context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
             prefs.edit().putInt("daily_goal_ml", nuovoObiettivo).apply()
         }
+    }
+
+    // --- FUNZIONE INTELLIGENTE PER FITBIT ---
+    fun updateWeightFromFitbit(context: Context, newWeight: Float): Boolean {
+        val currentProfile = userProfile.value
+        // Aggiorna solo se il peso su Fitbit è diverso dal nostro salvato
+        if (currentProfile.weightKg != newWeight) {
+            val updatedProfile = currentProfile.copy(weightKg = newWeight)
+            updateProfile(context, updatedProfile)
+            return true // Indica che l'obiettivo è cambiato
+        }
+        return false // Il peso era uguale, nessuna modifica
     }
 
     fun calculateGoal(profile: UserProfile): Int {
