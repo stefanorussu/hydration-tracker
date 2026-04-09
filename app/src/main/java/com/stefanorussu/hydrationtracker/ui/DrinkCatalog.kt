@@ -16,30 +16,30 @@ data class DrinkOption(
 
 object DrinkCatalog {
     val options = listOf(
-        // Idratazione Pura
-        DrinkOption("Acqua", 1.0f, Icons.Default.WaterDrop, DrinkTheme(Color(0xFFE3F2FD), Color(0xFF1976D2))),
-        DrinkOption("Tè", 1.0f, Icons.Default.EmojiFoodBeverage, DrinkTheme(Color(0xFFF1F8E9), Color(0xFF388E3C))),
-        DrinkOption("Limonata", 1.0f, Icons.Default.LocalDrink, DrinkTheme(Color(0xFFFFFDE7), Color(0xFFFBC02D))),
+        // Idratazione Pura (Tonalità Azzurre e Verdi tenui)
+        DrinkOption("Acqua", 1.0f, Icons.Default.WaterDrop, DrinkTheme(Color(0xFFD6E4FF), Color(0xFF00468A))),
+        DrinkOption("Tè", 1.0f, Icons.Default.EmojiFoodBeverage, DrinkTheme(Color(0xFFD7E8CD), Color(0xFF1B4B14))),
+        DrinkOption("Limonata", 1.0f, Icons.Default.LocalDrink, DrinkTheme(Color(0xFFFFF0C2), Color(0xFF5B4300))),
 
-        // Caffetteria
-        DrinkOption("Caffè", -0.2f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFEFEBE9), Color(0xFF5D4037))),
-        DrinkOption("Cappuccino", 0.5f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFFBE9E7), Color(0xFFD84315))),
-        DrinkOption("Cioccolata", 0.5f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFEFEBE9), Color(0xFF4E342E))), // Spostata qui
+        // Caffetteria (Tonalità Calde e Terra)
+        DrinkOption("Caffè", -0.2f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFEAE0D5), Color(0xFF4A392F))),
+        DrinkOption("Cappuccino", 0.5f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFFFDBCF), Color(0xFF6C2700))),
+        DrinkOption("Cioccolata", 0.5f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFEEDACC), Color(0xFF4D3324))),
 
-        // Energia & Fitness
-        DrinkOption("Sport Drink", 1.0f, Icons.Default.FlashOn, DrinkTheme(Color(0xFFE0F7FA), Color(0xFF0097A7))), // Icona Fulmine
-        DrinkOption("Energy", 0.5f, Icons.Default.Bolt, DrinkTheme(Color(0xFFFFF3E0), Color(0xFFE65100))),
-        DrinkOption("Frullato", 0.8f, Icons.Default.LocalDrink, DrinkTheme(Color(0xFFFCE4EC), Color(0xFFC2185B))), // Icona bicchiere standard, pulita
+        // Energia & Fitness (Tonalità Vivaci ma Morbide)
+        DrinkOption("Sport Drink", 1.0f, Icons.Default.FlashOn, DrinkTheme(Color(0xFFCFF3FC), Color(0xFF004E59))),
+        DrinkOption("Energy", 0.5f, Icons.Default.Bolt, DrinkTheme(Color(0xFFFFDCC1), Color(0xFF6D3000))),
+        DrinkOption("Frullato", 0.8f, Icons.Default.LocalDrink, DrinkTheme(Color(0xFFFFD8E4), Color(0xFF631133))),
 
-        // Pasti & Nutrizione
-        DrinkOption("Latte", 0.9f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFFAFAFA), Color(0xFF616161))),
-        DrinkOption("Yogurt", 0.6f, Icons.Default.LocalDining, DrinkTheme(Color(0xFFF3E5F5), Color(0xFF7B1FA2))), // Icona Ristorazione (Posate/Pasto)
-        DrinkOption("Succo", 0.9f, Icons.Default.LocalDrink, DrinkTheme(Color(0xFFFFF8E1), Color(0xFFFFA000))),
+        // Pasti & Nutrizione (Tonalità Neutre e Violacee)
+        DrinkOption("Latte", 0.9f, Icons.Default.LocalCafe, DrinkTheme(Color(0xFFE2E2E9), Color(0xFF303036))),
+        DrinkOption("Yogurt", 0.6f, Icons.Default.LocalDining, DrinkTheme(Color(0xFFEBD4FF), Color(0xFF4D1F7B))),
+        DrinkOption("Succo", 0.9f, Icons.Default.LocalDrink, DrinkTheme(Color(0xFFFFDEAD), Color(0xFF663B00))),
 
-        // Alcolici e Relax
-        DrinkOption("Birra", -0.5f, Icons.Default.SportsBar, DrinkTheme(Color(0xFFFFF8E1), Color(0xFFF57F17))),
-        DrinkOption("Vino", -0.8f, Icons.Default.WineBar, DrinkTheme(Color(0xFFFFEBEE), Color(0xFFD32F2F))), // Icona Calice di Vino
-        DrinkOption("Cocktail", -1.0f, Icons.Default.LocalBar, DrinkTheme(Color(0xFFE8EAF6), Color(0xFF303F9F))),
-        DrinkOption("Digestivo", -1.5f, Icons.Default.LocalBar, DrinkTheme(Color(0xFFE0F2F1), Color(0xFF00796B))) // Icona Bicchiere da Cocktail/Cicchetto
+        // Alcolici e Relax (Tonalità Serali)
+        DrinkOption("Birra", -0.5f, Icons.Default.SportsBar, DrinkTheme(Color(0xFFFFDF94), Color(0xFF5C3F00))),
+        DrinkOption("Vino", -0.8f, Icons.Default.WineBar, DrinkTheme(Color(0xFFFFDAD6), Color(0xFF730005))),
+        DrinkOption("Cocktail", -1.0f, Icons.Default.LocalBar, DrinkTheme(Color(0xFFE0E0FF), Color(0xFF282470))),
+        DrinkOption("Digestivo", -1.5f, Icons.Default.LocalBar, DrinkTheme(Color(0xFFC9EBE1), Color(0xFF005141)))
     )
 }

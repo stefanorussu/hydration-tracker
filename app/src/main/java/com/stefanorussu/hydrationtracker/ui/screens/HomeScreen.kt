@@ -672,8 +672,8 @@ fun HomeScreen(waterViewModel: WaterViewModel, profileViewModel: ProfileViewMode
             onDismissRequest = { showBottomSheet = false },
             sheetState = sheetState,
             dragHandle = { BottomSheetDefaults.DragHandle() },
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp
+            containerColor = MaterialTheme.colorScheme.surface, // Prende il nostro bianco puro
+            tonalElevation = 0.dp // <-- IMPOSTA QUESTO A 0.dp PER RIMUOVERE IL FILTRO AZZURRO
         ) {
             Column(
                 modifier = Modifier
