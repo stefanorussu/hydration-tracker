@@ -10,7 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,12 +51,10 @@ fun SettingsScreen(
     val fitbitAuthManager = remember { FitbitAuthManager(context) }
     var isFitbitLinked by remember { mutableStateOf(fitbitAuthManager.isLinked()) }
 
-    // --- FIX SCORRIMENTO ---
     val scrollState = rememberScrollState()
     LaunchedEffect(Unit) {
-        scrollState.scrollTo(0) // Torna sempre in cima quando apri il tab!
+        scrollState.scrollTo(0)
     }
-    // -----------------------
 
     val backupMessage by settingsViewModel.backupMessage.collectAsState()
     LaunchedEffect(backupMessage) {
@@ -106,7 +103,6 @@ fun SettingsScreen(
 
     Scaffold(
         topBar = {
-            // Sostituisci "TopAppBar" con "CenterAlignedTopAppBar"
             CenterAlignedTopAppBar(
                 title = {
                     Text("Impostazioni", fontWeight = FontWeight.Bold)
@@ -144,7 +140,7 @@ fun SettingsScreen(
                         )
                     }
                     TextButton(onClick = onNavigateToProfile) {
-                        Text("Modifica", fontWeight = FontWeight.Bold)
+                        Text("Visualizza", fontWeight = FontWeight.Bold)
                     }
                 }
             }

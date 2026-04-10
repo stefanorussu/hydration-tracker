@@ -9,8 +9,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.MonitorWeight
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import com.stefanorussu.hydrationtracker.data.local.ActivityLevel
 import com.stefanorussu.hydrationtracker.data.local.UserProfile
 import com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,11 +37,33 @@ fun OnboardingScreen(
 ) {
     val context = LocalContext.current
 
-    // Stati iniziali vuoti per invitare l'utente a compilarli
     var editWeight by remember { mutableStateOf("") }
-    var editAge by remember { mutableStateOf("") }
+    var editBirthDate by remember { mutableStateOf("") }
     var editIsMale by remember { mutableStateOf(true) }
     var editActivity by remember { mutableStateOf(ActivityLevel.MODERATE) }
+
+    var showDatePicker by remember { mutableStateOf(false) }
+    val datePickerState = rememberDatePickerState()
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val date = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                        editBirthDate = date.format(DateTimeFormatter.ISO_DATE)
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Annulla") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -58,16 +84,41 @@ fun OnboardingScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Per calcolare il tuo obiettivo di idratazione ideale su misura per te, abbiamo bisogno di qualche dato.",
+                text = "Per calcolare il tuo obiettivo di idratazione ideale, abbiamo bisogno di qualche dato. Puoi inserirli a mano o importarli automaticamente.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // PESO E ETÀ
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Button(
+                onClick = {
+                    // TODO: Qui agganceremo la richiesta per scaricare il profilo Fitbit
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Icon(Icons.Default.Sync, contentDescription = "Sync", modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Sincronizza con Fitbit (Opzionale)", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.surfaceVariant)
+                Text(" OPPURE ", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.surfaceVariant)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = editWeight,
                     onValueChange = { editWeight = it },
@@ -76,24 +127,30 @@ fun OnboardingScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(64.dp)
                 )
 
-                OutlinedTextField(
-                    value = editAge,
-                    onValueChange = { if (it.all { c -> c.isDigit() }) editAge = it },
-                    label = { Text("Età") },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                )
+                Box(modifier = Modifier.weight(1f).height(64.dp)) {
+                    OutlinedTextField(
+                        value = editBirthDate,
+                        onValueChange = { },
+                        label = { Text("Data Nascita") },
+                        leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        readOnly = true,
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable { showDatePicker = true }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // SESSO
             Text("Sesso", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -115,12 +172,18 @@ fun OnboardingScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // LIVELLO DI ATTIVITÀ
             Text("Livello di Attività", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(8.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ActivityLevel.entries.forEach { level ->
                     val isSelected = editActivity == level
+
+                    val activityName = when(level) {
+                        ActivityLevel.LOW -> "Basso"
+                        ActivityLevel.MODERATE -> "Moderato"
+                        ActivityLevel.HIGH -> "Alto"
+                    }
+
                     OutlinedCard(
                         onClick = { editActivity = level },
                         modifier = Modifier.fillMaxWidth(),
@@ -141,7 +204,7 @@ fun OnboardingScreen(
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                text = level.name,
+                                text = activityName,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
@@ -153,15 +216,13 @@ fun OnboardingScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // PULSANTE FINALE DI SALVATAGGIO (Con Protezione)
             Button(
                 onClick = {
                     val newWeight = editWeight.replace(",", ".").toFloatOrNull() ?: 70f
-                    val newAge = editAge.toIntOrNull() ?: 25
 
                     val newProfile = UserProfile(
                         weightKg = newWeight,
-                        age = newAge,
+                        birthDate = editBirthDate,
                         isMale = editIsMale,
                         activityLevel = editActivity
                     )
@@ -175,12 +236,11 @@ fun OnboardingScreen(
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
-                enabled = editWeight.isNotEmpty() && editAge.isNotEmpty() // <-- L'UNICA RIGA AGGIUNTA
+                enabled = editWeight.isNotEmpty() && editBirthDate.isNotEmpty()
             ) {
                 Text("CALCOLA E INIZIA", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
 
-            // Spazio esterno in fondo per evitare che il pulsante si attacchi al bordo schermo
             Spacer(modifier = Modifier.height(32.dp))
         }
     }

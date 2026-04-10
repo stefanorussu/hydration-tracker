@@ -39,6 +39,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
@@ -104,7 +111,28 @@ class MainActivity : ComponentActivity() {
 
                         var isFirstRun by remember { mutableStateOf(prefs.getBoolean("is_first_run", true)) }
 
-                        androidx.compose.runtime.LaunchedEffect(pendingFitbitCode) {
+                        // --- INIZIO NUOVO CODICE PER LE NOTIFICHE ---
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            val permissionLauncher = rememberLauncherForActivityResult(
+                                contract = ActivityResultContracts.RequestPermission()
+                            ) { isGranted ->
+                                // L'utente ha risposto al popup (accettato o rifiutato)
+                            }
+
+                            LaunchedEffect(Unit) {
+                                val isGranted = ContextCompat.checkSelfPermission(
+                                    localContext,
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                                if (!isGranted) {
+                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            }
+                        }
+                        // --- FINE NUOVO CODICE PER LE NOTIFICHE ---
+
+                        LaunchedEffect(pendingFitbitCode) {
                             pendingFitbitCode?.let { code ->
                                 snackbarHost.showSnackbar("Collegamento a Fitbit in corso...")
                                 val success = withContext(Dispatchers.IO) { fitbitAuthManager.exchangeCodeForToken(code) }

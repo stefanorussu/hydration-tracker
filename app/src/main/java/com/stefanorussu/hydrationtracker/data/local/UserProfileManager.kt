@@ -17,7 +17,7 @@ class UserProfileManager(private val context: Context) {
     // CHIAVI UNICHE PER IL PROFILO
     private object Keys {
         val WEIGHT = floatPreferencesKey("user_weight")
-        val AGE = intPreferencesKey("user_age")
+        val BIRTH_DATE = stringPreferencesKey("user_birth_date") // <--- Ora si aspetta una data!
         val IS_MALE = booleanPreferencesKey("user_is_male")
         val ACTIVITY_LEVEL = stringPreferencesKey("user_activity_level")
     }
@@ -33,11 +33,9 @@ class UserProfileManager(private val context: Context) {
         }
         .map { preferences ->
             // PREVENZIONE CRASH: Leggiamo in modo sicuro
-            // Se ACTIVITY_LEVEL non è una stringa o è nullo, usiamo il default
             val activityName = try {
                 preferences[Keys.ACTIVITY_LEVEL] ?: ActivityLevel.MODERATE.name
             } catch (e: ClassCastException) {
-                // Se c'è un vecchio dato Float, restituiamo il default
                 ActivityLevel.MODERATE.name
             }
 
@@ -49,7 +47,7 @@ class UserProfileManager(private val context: Context) {
 
             UserProfile(
                 weightKg = preferences[Keys.WEIGHT] ?: 70f,
-                age = preferences[Keys.AGE] ?: 25,
+                birthDate = preferences[Keys.BIRTH_DATE] ?: "2000-01-01", // <--- Lettura aggiornata
                 isMale = preferences[Keys.IS_MALE] ?: true,
                 activityLevel = activityLevel
             )
@@ -58,7 +56,7 @@ class UserProfileManager(private val context: Context) {
     suspend fun saveUserProfile(profile: UserProfile) {
         context.userProfileStore.edit { preferences ->
             preferences[Keys.WEIGHT] = profile.weightKg
-            preferences[Keys.AGE] = profile.age
+            preferences[Keys.BIRTH_DATE] = profile.birthDate // <--- Salvataggio aggiornato
             preferences[Keys.IS_MALE] = profile.isMale
             preferences[Keys.ACTIVITY_LEVEL] = profile.activityLevel.name
         }
