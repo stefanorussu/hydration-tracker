@@ -46,4 +46,7 @@ interface WaterDao {
     // Ora cerca la quantità "fisica" più usata (inputAmountMl)
     @Query("SELECT inputAmountMl FROM water_logs WHERE drinkName = :drinkName GROUP BY inputAmountMl ORDER BY COUNT(inputAmountMl) DESC LIMIT 1")
     suspend fun getMostFrequentAmount(drinkName: String): Int?
+
+    @Query("SELECT * FROM water_logs WHERE timestamp >= :start AND timestamp <= :end AND (externalId IS NULL OR externalId = '')")
+    suspend fun getUnsyncedRecordsForToday(start: Long, end: Long): List<WaterRecord>
 }

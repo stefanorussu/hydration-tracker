@@ -16,10 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class WaterViewModel(
     private val waterRepository: WaterRepository,
@@ -29,12 +25,37 @@ class WaterViewModel(
     private val _dayStart = MutableStateFlow(calculateStartOfDay())
 
     // --- VARIABILI PER LA UI DELLA HOME ---
-    private val _lastSyncTime = MutableStateFlow<String?>(fitbitRepository?.getLastSyncTime())
+    // Inizializzato a null. Il valore verrà caricato dalla UI chiamando loadLastSyncTime()
+    private val _lastSyncTime = MutableStateFlow<String?>(null)
     val lastSyncTime: StateFlow<String?> = _lastSyncTime
 
     private val _smartMessageOverride = MutableStateFlow<String?>(null)
     val smartMessageOverride: StateFlow<String?> = _smartMessageOverride
     // --------------------------------------
+
+    // --- MOTORE METEO ---
+    private val weatherRepository = com.stefanorussu.hydrationtracker.data.repository.WeatherRepository()
+
+    private val _currentTemp = kotlinx.coroutines.flow.MutableStateFlow<Double?>(null)
+    val currentTemp: kotlinx.coroutines.flow.StateFlow<Double?> = _currentTemp
+
+    private val _weatherBonus = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val weatherBonus: kotlinx.coroutines.flow.StateFlow<Int> = _weatherBonus
+
+    fun fetchWeather() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val temp = weatherRepository.getSassariTemperature()
+            _currentTemp.value = temp
+
+            // Se fanno 28 gradi o più, aggiungiamo 400ml di obiettivo!
+            if (temp != null && temp >= 28.0) {
+                _weatherBonus.value = 400
+            } else {
+                _weatherBonus.value = 0
+            }
+        }
+    }
+    // --------------------
 
     private fun calculateStartOfDay(): Long {
         val calendar = Calendar.getInstance()
@@ -55,9 +76,13 @@ class WaterViewModel(
     }
 
     fun checkMidnight() {
+        val currentStart = _dayStart.value
         val newStart = calculateStartOfDay()
-        if (_dayStart.value != newStart) {
+
+        if (currentStart != newStart) {
             _dayStart.value = newStart
+            _smartMessageOverride.value = null
+            android.util.Log.d("WATER_VIEWMODEL", "Mezzanotte passata: Grafici resettati.")
         }
     }
 
@@ -123,44 +148,64 @@ class WaterViewModel(
     val snackbarMessage: kotlinx.coroutines.flow.SharedFlow<String> = _snackbarMessage
 
     // --- NUOVA SINCRONIZZAZIONE INTELLIGENTE ---
-    fun syncWithFitbit(context: Context, profileViewModel: ProfileViewModel, isManual: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            fitbitRepository?.let { fitbit ->
-                if (isManual) _isRefreshing.value = true
+    fun syncWithFitbit(context: Context, profileViewModel: com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel, isManual: Boolean = false) {
+        if (_isRefreshing.value) return
+        _isRefreshing.value = true
 
-                // 1. Sincronizza l'acqua
-                val db = com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(fitbit.context)
-                val success = fitbit.syncTodayWater(db.waterDao())
+        viewModelScope.launch {
+            try {
+                // Creiamo il repository localmente qui usando il context passato
+                val database = com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(context)
+                val fitbitRepo = com.stefanorussu.hydrationtracker.data.repository.FitbitRepository(context, database.waterDao())
 
-                // 2. Sincronizza il Peso
-                val fitbitWeight = fitbit.fetchFitbitWeight()
-                if (fitbitWeight != null) {
-                    val didWeightChange = profileViewModel.updateWeightFromFitbit(context, fitbitWeight)
-                    if (didWeightChange) {
-                        // Accende il messaggio speciale sul Pannello Smart per 6 secondi
-                        _smartMessageOverride.value = "Peso aggiornato da Fitbit. Obiettivo ricalcolato! ✨"
-                        launch(Dispatchers.Main) {
-                            delay(6000)
-                            _smartMessageOverride.value = null
+                val success = fitbitRepo.syncTodayWater(database.waterDao())
+
+                if (success) {
+                    val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                    _lastSyncTime.value = timeString
+
+                    // Salviamo il tempo nelle SharedPreferences usando il context
+                    val prefs = context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putString("last_sync_time", timeString).apply()
+
+                    if (isManual) {
+                        _snackbarMessage.emit("Sincronizzazione completata")
+                    }
+
+                    // --- CONTROLLO SPORT ---
+                    val sportData = fitbitRepo.calculateSportWaterBonus()
+                    val activeMinutes = sportData.first
+                    val extraWater = sportData.second
+
+                    if (activeMinutes > 0 && extraWater > 0) {
+                        _smartMessageOverride.value = "Ho rilevato $activeMinutes min di attività! 🔥 Ho calcolato +${extraWater}ml per il recupero."
+                        _weatherBonus.value += extraWater // Usiamo la variabile bonus per aggiungere l'acqua al traguardo
+                    }
+
+                    // --- CONTROLLO PESO AUTOMATICO ---
+                    val fitbitProfile = fitbitRepo.fetchFitbitProfile()
+                    if (fitbitProfile != null) {
+                        val newWeight = fitbitProfile.weight.toFloat()
+
+                        // Recuperiamo il profilo attuale dal ViewModel
+                        val currentProfile = profileViewModel.userProfile.value
+
+                        if (currentProfile.weightKg != newWeight) {
+                            val updatedProfile = currentProfile.copy(weightKg = newWeight)
+
+                            // Usiamo la tua funzione updateProfile senza causare errori
+                            profileViewModel.updateProfile(context, updatedProfile)
                         }
                     }
-                }
 
-                // 3. Aggiorna orario TopBar
-                if (success) {
-                    val timeString = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-                    fitbit.saveLastSyncTime(timeString)
-                    _lastSyncTime.value = timeString
+                } else if (isManual) {
+                    _snackbarMessage.emit("Errore di sincronizzazione")
                 }
-
-                if (isManual) {
-                    _isRefreshing.value = false
-                    if (success) {
-                        _snackbarMessage.emit("Sincronizzato con Fitbit ⌚")
-                    } else {
-                        _snackbarMessage.emit("Controlla la connessione internet ⚠️")
-                    }
-                }
+            } catch (e: Exception) {
+                android.util.Log.e("WaterViewModel", "Errore sync", e)
+                if (isManual) _snackbarMessage.emit("Errore: ${e.localizedMessage}")
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }
@@ -172,6 +217,15 @@ class WaterViewModel(
             withContext(Dispatchers.Main) {
                 onResult(suggested)
             }
+        }
+    }
+
+    // Carica il tempo all'avvio dell'app
+    fun loadLastSyncTime(context: Context) {
+        val prefs = context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
+        val savedTime = prefs.getString("last_sync_time", null)
+        if (savedTime != null) {
+            _lastSyncTime.value = savedTime
         }
     }
 }

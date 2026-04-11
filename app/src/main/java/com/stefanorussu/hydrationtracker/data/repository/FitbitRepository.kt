@@ -1,7 +1,7 @@
 package com.stefanorussu.hydrationtracker.data.repository
 
 import android.content.Context
-import com.stefanorussu.hydrationtracker.data.local.WaterDao
+import android.content.SharedPreferences
 import com.stefanorussu.hydrationtracker.data.network.FitbitApi
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -9,42 +9,47 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class FitbitRepository(
-    val context: Context,
-    private val waterDao: WaterDao
-) {
-    private val prefs = context.getSharedPreferences("fitbit_prefs", Context.MODE_PRIVATE)
+class FitbitRepository(private val context: Context, private val waterDao: com.stefanorussu.hydrationtracker.data.local.WaterDao) {
 
-    private val api: FitbitApi by lazy {
-        Retrofit.Builder()
-            .baseUrl("https://api.fitbit.com/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(FitbitApi::class.java)
-    }
+    private val prefs: SharedPreferences = context.getSharedPreferences("fitbit_prefs", Context.MODE_PRIVATE)
+
+    private val retrofit = Retrofit.Builder()
+        .baseUrl("https://api.fitbit.com/")
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    private val api = retrofit.create(FitbitApi::class.java)
 
     private fun getAccessToken(): String? {
         return prefs.getString("access_token", null)
     }
 
-    // --- SALVATAGGIO ORARIO SYNC ---
-    fun getLastSyncTime(): String? {
-        return prefs.getString("last_sync_time", null)
+    // --- TRUCCO ANTI-FANTASMA (Cestino Offline) ---
+    private fun addPendingDelete(logId: String) {
+        val set = prefs.getStringSet("pending_deletes", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        set.add(logId)
+        prefs.edit().putStringSet("pending_deletes", set).apply()
     }
 
-    fun saveLastSyncTime(time: String) {
-        prefs.edit().putString("last_sync_time", time).apply()
+    private fun removePendingDelete(logId: String) {
+        val set = prefs.getStringSet("pending_deletes", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        set.remove(logId)
+        prefs.edit().putStringSet("pending_deletes", set).apply()
     }
-    // -------------------------------
+
+    private fun isPendingDelete(logId: String): Boolean {
+        return prefs.getStringSet("pending_deletes", emptySet())?.contains(logId) == true
+    }
+    // ----------------------------------------------
 
     // --- ESTRAZIONE PESO ---
-    suspend fun fetchFitbitWeight(): Float? {
+    suspend fun fetchFitbitProfile(): com.stefanorussu.hydrationtracker.data.network.FitbitUser? {
         val token = getAccessToken() ?: return null
         return try {
             val response = api.getUserProfile("Bearer $token")
-            response.user.weight
+            response.user
         } catch (e: Exception) {
-            android.util.Log.e("FITBIT_SYNC", "Errore estrazione peso: ${e.message}")
+            android.util.Log.e("FITBIT_SYNC", "Errore estrazione profilo: ${e.message}")
             null
         }
     }
@@ -92,6 +97,8 @@ class FitbitRepository(
     }
 
     suspend fun deleteRecordFromFitbit(fitbitLogId: String): Boolean {
+        addPendingDelete(fitbitLogId)
+
         val token = getAccessToken() ?: return false
 
         return try {
@@ -99,6 +106,7 @@ class FitbitRepository(
 
             if (response.isSuccessful) {
                 android.util.Log.d("FITBIT_SYNC", "SUCCESSO! Acqua eliminata da Fitbit.")
+                removePendingDelete(fitbitLogId)
                 true
             } else if (response.code() == 401) {
                 android.util.Log.w("FITBIT_SYNC", "Token scaduto durante l'eliminazione. Rinnovo...")
@@ -107,7 +115,10 @@ class FitbitRepository(
                 if (authManager.refreshAccessToken()) {
                     val newToken = getAccessToken()
                     val retryResponse = api.deleteWaterLog("Bearer $newToken", fitbitLogId)
-                    retryResponse.isSuccessful
+                    if (retryResponse.isSuccessful) {
+                        removePendingDelete(fitbitLogId)
+                        true
+                    } else false
                 } else {
                     false
                 }
@@ -134,18 +145,25 @@ class FitbitRepository(
             var deletedCount = 0
 
             fitbitLogs.forEach { fitbitEntry ->
-                val count = waterDao.checkFitbitIdCount(fitbitEntry.logId.toString())
+                val logIdStr = fitbitEntry.logId.toString()
 
-                if (count == 0) {
-                    val newRecord = com.stefanorussu.hydrationtracker.data.local.WaterRecord(
-                        amountMl = fitbitEntry.amount,
-                        timestamp = System.currentTimeMillis(),
-                        drinkName = "Acqua",
-                        source = "FITBIT",
-                        externalId = fitbitEntry.logId.toString()
-                    )
-                    waterDao.insert(newRecord)
-                    addedCount++
+                if (isPendingDelete(logIdStr)) {
+                    android.util.Log.d("FITBIT_SYNC", "FANTASMA INTERCETTATO ($logIdStr)! Forzo l'eliminazione su Fitbit.")
+                    deleteRecordFromFitbit(logIdStr)
+                } else {
+                    val count = waterDao.checkFitbitIdCount(logIdStr)
+
+                    if (count == 0) {
+                        val newRecord = com.stefanorussu.hydrationtracker.data.local.WaterRecord(
+                            amountMl = fitbitEntry.amount,
+                            timestamp = System.currentTimeMillis(),
+                            drinkName = "Acqua",
+                            source = "FITBIT",
+                            externalId = logIdStr
+                        )
+                        waterDao.insert(newRecord)
+                        addedCount++
+                    }
                 }
             }
 
@@ -159,13 +177,24 @@ class FitbitRepository(
             val fitbitIds = fitbitLogs.map { it.logId.toString() }
 
             localSyncedRecords.forEach { localRecord ->
-                if (localRecord.externalId !in fitbitIds) {
+                if (localRecord.externalId !in fitbitIds && !isPendingDelete(localRecord.externalId ?: "")) {
                     waterDao.deleteWater(localRecord)
                     deletedCount++
                 }
             }
 
-            android.util.Log.d("FITBIT_SYNC", "Sincronizzazione completata! Aggiunti $addedCount, Eliminati $deletedCount record.")
+            val unsyncedRecords = waterDao.getUnsyncedRecordsForToday(startOfDay, endOfDay)
+            var uploadedCount = 0
+
+            unsyncedRecords.forEach { localRecord ->
+                val newFitbitId = syncSingleRecordToFitbit(localRecord.amountMl, localRecord.timestamp)
+                if (newFitbitId != null) {
+                    waterDao.updateWater(localRecord.copy(externalId = newFitbitId))
+                    uploadedCount++
+                }
+            }
+
+            android.util.Log.d("FITBIT_SYNC", "Sincronizzazione completata! Aggiunti +$addedCount da Fitbit, -$deletedCount eliminati, +$uploadedCount orfani caricati.")
             true
 
         } catch (e: retrofit2.HttpException) {
@@ -185,6 +214,51 @@ class FitbitRepository(
         } catch (e: Exception) {
             android.util.Log.e("FITBIT_SYNC", "Nessuna connessione a internet: ${e.message}")
             false
+        }
+    }
+
+    suspend fun syncUserProfile(profileViewModel: com.stefanorussu.hydrationtracker.ui.viewmodel.ProfileViewModel) {
+        val token = getAccessToken() ?: return
+        try {
+            val response = api.getUserProfile("Bearer $token")
+            val user = response.user
+
+            val newProfile = com.stefanorussu.hydrationtracker.data.local.UserProfile(
+                weightKg = user.weight.toFloat(),
+                birthDate = user.dateOfBirth,
+                isMale = user.gender.lowercase() == "male",
+                activityLevel = com.stefanorussu.hydrationtracker.data.local.ActivityLevel.MODERATE
+            )
+
+            profileViewModel.updateProfile(context, newProfile)
+        } catch (e: Exception) {
+            android.util.Log.e("FITBIT_SYNC", "Errore sync profilo: ${e.message}")
+        }
+    }
+
+    // --- ALGORITMO SPORT INTELLIGENTE ---
+    // Ritorna una Pair(minuti_totali, ml_da_aggiungere)
+    suspend fun calculateSportWaterBonus(): Pair<Int, Int> {
+        val token = getAccessToken() ?: return Pair(0, 0)
+        return try {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            val response = api.getActivities("Bearer $token", today)
+
+            // Se per qualche motivo questi dati mancano, usiamo 0
+            val intenseMinutes = response.summary.veryActiveMinutes ?: 0
+            val moderateMinutes = response.summary.fairlyActiveMinutes ?: 0
+
+            val totalActiveMinutes = intenseMinutes + moderateMinutes
+
+            // Se hai fatto meno di 15 minuti di attività totale, ignoriamo (es. corsetta per prendere il bus)
+            if (totalActiveMinutes < 15) return Pair(0, 0)
+
+            // 15ml per minuto intenso, 5ml per minuto moderato
+            val extraWaterMl = (intenseMinutes * 15) + (moderateMinutes * 5)
+
+            Pair(totalActiveMinutes, extraWaterMl)
+        } catch (e: Exception) {
+            Pair(0, 0)
         }
     }
 }

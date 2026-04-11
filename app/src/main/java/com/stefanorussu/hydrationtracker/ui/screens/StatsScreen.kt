@@ -6,13 +6,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,12 +57,15 @@ fun StatsScreen(
     val profile by profileViewModel.userProfile.collectAsState()
     val dailyGoalMl = profileViewModel.calculateGoal(profile).takeIf { it > 0 } ?: 2000
 
-    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val fullDayFormatter = remember { SimpleDateFormat("EEEE", Locale.getDefault()) }
     val context = LocalContext.current
     val successColor = if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF388E3C)
 
     var recordToEdit by remember { mutableStateOf<WaterRecord?>(null) }
+
+    val database = remember { com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(context) }
+    val waterDao = remember { database.waterDao() }
+    val fitbitRepository = remember { com.stefanorussu.hydrationtracker.data.repository.FitbitRepository(context, waterDao) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -166,13 +168,15 @@ fun StatsScreen(
             }
         }
     ) { padding ->
+        // RIMOSSO IL PADDING ORIZZONTALE GLOBALE! Ora la lista tocca i bordi.
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            // Padding aggiunto SOLO agli elementi che devono stare staccati dai bordi
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { viewModel.shiftTime(false) }) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Precedente", tint = MaterialTheme.colorScheme.onSurface)
                 }
@@ -190,7 +194,7 @@ fun StatsScreen(
                 }
             }
 
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Text(text = "$summaryValue ml", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
 
                 Text(
@@ -217,7 +221,7 @@ fun StatsScreen(
             }
 
             if (currentTab != TimeTab.DAY) {
-                Box(modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 16.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().height(180.dp).padding(top = 16.dp, start = 16.dp, end = 16.dp)) {
                     if (chartItems.isEmpty() || chartItems.all { it.value == 0 }) {
                         Text("Nessun dato registrato", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
                     } else {
@@ -291,8 +295,14 @@ fun StatsScreen(
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(top = 8.dp))
-            Text(text = if (currentTab == TimeTab.DAY) "Cronologia delle bevute" else "Dettagli del periodo", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+            Text(
+                text = if (currentTab == TimeTab.DAY) "Cronologia delle bevute" else "Dettagli del periodo",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
 
             if (currentTab == TimeTab.DAY) {
                 if (recordsList.isEmpty()) {
@@ -300,34 +310,20 @@ fun StatsScreen(
                         Text("Nessun dato per questo giorno", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
-                        items(recordsList) { record ->
+                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        items(recordsList, key = { it.id }) { record ->
                             val drinkData = DrinkCatalog.options.find { it.name == record.drinkName }
                             val dynamicIcon = drinkData?.icon ?: Icons.Default.LocalDrink
                             val themeBg = drinkData?.theme?.bg ?: MaterialTheme.colorScheme.surfaceVariant
                             val themeFg = drinkData?.theme?.fg ?: MaterialTheme.colorScheme.primary
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { recordToEdit = record }
-                                    .padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(themeBg), contentAlignment = Alignment.Center) {
-                                    Icon(imageVector = dynamicIcon, contentDescription = null, tint = themeFg, modifier = Modifier.size(20.dp))
-                                }
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(text = record.drinkName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(text = "Tocca per modificare", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Spacer(modifier = Modifier.weight(1f))
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(text = "${record.amountMl} ml", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(text = timeFormatter.format(Date(record.timestamp)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
+                            DrinkRecordItem(
+                                record = record,
+                                dynamicIcon = dynamicIcon,
+                                themeBg = themeBg,
+                                themeFg = themeFg,
+                                onEdit = { recordToEdit = record }
+                            )
                         }
                     }
                 }
@@ -337,22 +333,18 @@ fun StatsScreen(
                         Text("Nessun dato per questo periodo", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                         items(listItems) { item ->
-                            Row(modifier = Modifier.fillMaxWidth().clickable { viewModel.drillDownTo(item.timestamp, item.targetTab) }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column {
-                                    Text(text = item.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                                    if (item.subtitle.isNotEmpty()) {
-                                        Text(text = item.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(text = "${item.value} ml", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = if (item.value >= dailyGoalMl) successColor else MaterialTheme.colorScheme.onSurface)
-                                    if (item.isAverage) {
-                                        Text(text = "Media giorn.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            }
+                            // QUESTO È IL COMPONENTE RIASSUNTIVO UNIFICATO PER GLI ALTRI TAB
+                            SummaryRecordItem(
+                                title = item.title,
+                                subtitle = item.subtitle,
+                                valueText = "${item.value} ml",
+                                isAverage = item.isAverage,
+                                isSuccess = item.value >= dailyGoalMl,
+                                successColor = successColor,
+                                onClick = { viewModel.drillDownTo(item.timestamp, item.targetTab) }
+                            )
                         }
                     }
                 }
@@ -366,12 +358,6 @@ fun StatsScreen(
 
         val dialogDateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
         val dialogTimeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-
-        val database = com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(context)
-        val waterDao = database.waterDao()
-        val fitbitRepository = remember {
-            com.stefanorussu.hydrationtracker.data.repository.FitbitRepository(context, waterDao)
-        }
 
         AlertDialog(
             onDismissRequest = { recordToEdit = null },
@@ -462,5 +448,46 @@ fun StatsScreen(
                 }
             }
         )
+    }
+}
+
+// Nuovo componente per i Tab Settimana/Mese/Anno identico allo stile di DrinkRecordItem
+@Composable
+fun SummaryRecordItem(
+    title: String,
+    subtitle: String,
+    valueText: String,
+    isAverage: Boolean,
+    isSuccess: Boolean,
+    successColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                if (subtitle.isNotEmpty()) {
+                    Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(text = valueText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (isSuccess) successColor else MaterialTheme.colorScheme.onSurface)
+                if (isAverage) {
+                    Text(text = "Media giorn.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), thickness = 1.dp)
     }
 }

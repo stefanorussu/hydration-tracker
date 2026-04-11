@@ -16,6 +16,13 @@ android {
     namespace = "com.stefanorussu.hydrationtracker"
     compileSdk = 34
 
+    // 1. PRIMA DI TUTTO: Leggiamo il file local.properties e lo mettiamo nella variabile "properties"
+    val properties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        properties.load(localPropertiesFile.inputStream())
+    }
+
     defaultConfig {
         applicationId = "com.stefanorussu.hydrationtracker"
         minSdk = 26
@@ -25,21 +32,20 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Estraiamo le password in modo sicuro dal file local.properties
-        val fitbitId = localProperties.getProperty("FITBIT_CLIENT_ID") ?: ""
-        val fitbitSecret = localProperties.getProperty("FITBIT_CLIENT_SECRET") ?: ""
+        // 2. Estraiamo i valori usando SOLO "properties" (con fallback a stringa vuota se non li trova)
+        val fitbitId = properties.getProperty("FITBIT_CLIENT_ID") ?: ""
+        val fitbitSecret = properties.getProperty("FITBIT_CLIENT_SECRET") ?: ""
+        val fitbitRedirect = properties.getProperty("FITBIT_REDIRECT_URI") ?: ""
 
-        // Le passiamo a Gradle racchiuse nelle virgolette escaped (\")
+        // 3. Creiamo i campi per BuildConfig
         buildConfigField("String", "FITBIT_CLIENT_ID", "\"$fitbitId\"")
         buildConfigField("String", "FITBIT_CLIENT_SECRET", "\"$fitbitSecret\"")
+        buildConfigField("String", "FITBIT_REDIRECT_URI", "\"$fitbitRedirect\"")
     }
 
-    buildTypes {
-        getByName("debug") {
-            // Disabilita la compressione risorse in debug per evitare il fingerprinting
-            isShrinkResources = false
-            isMinifyEnabled = false
-        }
+    buildFeatures {
+        compose = true
+        buildConfig = true // Fondamentale per far apparire la classe BuildConfig nel codice!
     }
 
     compileOptions {

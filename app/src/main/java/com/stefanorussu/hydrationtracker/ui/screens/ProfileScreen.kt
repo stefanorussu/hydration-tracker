@@ -65,7 +65,7 @@ fun ProfileScreen(
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
                         val date = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
-                        editBirthDate = date.format(DateTimeFormatter.ISO_DATE)
+                        editBirthDate = date.format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
                     }
                     showDatePicker = false
                 }) { Text("OK") }
@@ -157,7 +157,11 @@ fun ProfileScreen(
 
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         ProfileInfoRow(icon = Icons.Default.MonitorWeight, label = "Peso Corporeo", value = "${profile.weightKg} kg")
-                        ProfileInfoRow(icon = Icons.Default.CalendarMonth, label = "Data di Nascita", value = profile.birthDate)
+                        ProfileInfoRow(
+                            icon = Icons.Default.CalendarMonth,
+                            label = "Data di Nascita", // <-- Corretto con le maiuscole
+                            value = profileViewModel.formatToReadableDate(profile.birthDate) // <-- Formato: 15 marzo 1983
+                        )
                         ProfileInfoRow(icon = if (profile.isMale) Icons.Default.Male else Icons.Default.Female, label = "Sesso", value = if (profile.isMale) "Uomo" else "Donna")
                         ProfileInfoRow(icon = Icons.Default.DirectionsRun, label = "Livello Attività", value = currentActivityText)
 
@@ -189,7 +193,7 @@ fun ProfileScreen(
                                 OutlinedTextField(
                                     value = editBirthDate,
                                     onValueChange = { },
-                                    label = { Text("Data Nascita") },
+                                    label = { Text("Data di Nascita") },
                                     leadingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                     readOnly = true,
                                     singleLine = true,

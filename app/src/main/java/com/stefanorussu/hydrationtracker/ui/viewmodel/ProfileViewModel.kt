@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.Period
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class ProfileViewModel(private val profileManager: UserProfileManager) : ViewModel() {
 
@@ -74,5 +75,22 @@ class ProfileViewModel(private val profileManager: UserProfileManager) : ViewMod
         } catch (e: Exception) {
             25 // Età di default se la data è formattata male
         }
+    }
+
+    fun formatToReadableDate(inputDate: String): String {
+        if (inputDate.isEmpty()) return "Data non inserita"
+
+        // Proviamo i diversi formati possibili per evitare crash con i vecchi dati
+        val formats = listOf("dd-MM-yyyy", "yyyy-MM-dd")
+
+        for (format in formats) {
+            try {
+                val parsedDate = LocalDate.parse(inputDate, DateTimeFormatter.ofPattern(format))
+                return parsedDate.format(DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.ITALIAN))
+            } catch (e: Exception) {
+                continue // Prova il prossimo formato
+            }
+        }
+        return inputDate // Se fallisce tutto, mostra quello che c'è
     }
 }

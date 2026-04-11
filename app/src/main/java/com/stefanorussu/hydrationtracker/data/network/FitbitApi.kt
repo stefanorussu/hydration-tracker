@@ -9,7 +9,9 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
 
-// --- RISPOSTE API FITBIT ---
+// ==========================================
+// 1. CLASSI DATI (RISPOSTE DA FITBIT)
+// ==========================================
 
 data class FitbitTokenResponse(
     val access_token: String,
@@ -18,7 +20,6 @@ data class FitbitTokenResponse(
     val expires_in: Int
 )
 
-// Risposta di Fitbit quando salviamo l'acqua (ci restituisce l'ID del log creato)
 data class FitbitWaterLogResponse(
     val waterLog: FitbitWaterLog
 )
@@ -28,7 +29,36 @@ data class FitbitWaterLog(
     val amount: Int
 )
 
-// --- INTERFACCIA RETROFIT ---
+data class FitbitWaterSummaryResponse(
+    val water: List<FitbitWaterLogEntry>
+)
+
+data class FitbitWaterLogEntry(
+    val logId: Long,
+    val amount: Int
+)
+
+// Dati Profilo
+data class FitbitProfileResponse(val user: FitbitUser)
+
+data class FitbitUser(
+    val weight: Double,
+    val dateOfBirth: String,
+    val gender: String
+)
+
+// Dati Attività (Sport)
+data class FitbitActivityResponse(val summary: FitbitActivitySummary)
+
+data class FitbitActivitySummary(
+    val veryActiveMinutes: Int? = 0,
+    val fairlyActiveMinutes: Int? = 0
+)
+
+
+// ==========================================
+// 2. INTERFACCIA RETROFIT (LE CHIAMATE)
+// ==========================================
 
 interface FitbitApi {
 
@@ -49,7 +79,7 @@ interface FitbitApi {
         @Header("Authorization") authHeader: String,
         @Query("date") date: String, // Formato richiesto: yyyy-MM-dd
         @Query("amount") amount: Int,
-        @Query("unit") unit: String = "ml" // Forziamo i millilitri per sicurezza
+        @Query("unit") unit: String = "ml" // Forziamo i millilitri
     ): FitbitWaterLogResponse
 
     // 3. Rinnovo del Token (Refresh)
@@ -76,19 +106,16 @@ interface FitbitApi {
         @Path("date") dateString: String // Formato "yyyy-MM-dd"
     ): FitbitWaterSummaryResponse
 
+    // 6. Scarica il Profilo Utente (Peso, Sesso, Età)
     @GET("1/user/-/profile.json")
-    suspend fun getUserProfile(@Header("Authorization") authHeader: String): FitbitProfileResponse
+    suspend fun getUserProfile(
+        @Header("Authorization") authHeader: String
+    ): FitbitProfileResponse
+
+    // 7. Scarica le Attività per capire se ha fatto sport
+    @GET("1/user/-/activities/date/{date}.json")
+    suspend fun getActivities(
+        @Header("Authorization") authHeader: String,
+        @Path("date") date: String // Qui era l'errore, serve @Path!
+    ): FitbitActivityResponse
 }
-
-// Contenitori per leggere la risposta di Fitbit (Mettili in fondo, fuori dalla classe)
-data class FitbitWaterSummaryResponse(
-    val water: List<FitbitWaterLogEntry>
-)
-
-data class FitbitWaterLogEntry(
-    val logId: Long,
-    val amount: Int
-)
-
-data class FitbitProfileResponse(val user: FitbitUser)
-data class FitbitUser(val weight: Float)

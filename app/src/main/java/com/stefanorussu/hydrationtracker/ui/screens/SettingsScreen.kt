@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import kotlinx.coroutines.launch
+import androidx.compose.ui.draw.rotate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +52,39 @@ fun SettingsScreen(
 
     val fitbitAuthManager = remember { FitbitAuthManager(context) }
     var isFitbitLinked by remember { mutableStateOf(fitbitAuthManager.isLinked()) }
+    var isSyncing by remember { mutableStateOf(false) } // Nuova variabile per l'animazione di caricamento
+    var lastSyncTime by remember { mutableStateOf(context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE).getString("last_sync_time", "Mai")) }
+
+    val prefs = context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE)
+    var isNotificationsEnabled by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
+    var selectedPauseOption by remember { mutableStateOf(prefs.getString("pause_option", "Per sempre") ?: "Per sempre") }
+    var showPauseOptions by remember { mutableStateOf(false) }
+
+    var silenceStart by remember { mutableStateOf(prefs.getString("silence_start", "23:00") ?: "23:00") }
+    var silenceEnd by remember { mutableStateOf(prefs.getString("silence_end", "07:00") ?: "07:00") }
+
+    // Leggiamo l'orario di riattivazione
+    val pauseUntil = remember { mutableStateOf(prefs.getLong("notifications_pause_until", 0L)) }
+
+    var showTimePickerDialog by remember { mutableStateOf(false) }
+    var pickingStartTime by remember { mutableStateOf(true) } // Per capire se stiamo cambiando l'inizio o la fine
+    val timePickerState = androidx.compose.material3.rememberTimePickerState(
+        initialHour = 23,
+        initialMinute = 0,
+        is24Hour = true
+    )
+
+    // Funzione rapida per formattare l'orario
+    val formatTime = { millis: Long ->
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(millis))
+    }
+
+    LaunchedEffect(selectedPauseOption) {
+        if (!isNotificationsEnabled && selectedPauseOption != "Per sempre" && showPauseOptions) {
+            kotlinx.coroutines.delay(3000)
+            showPauseOptions = false
+        }
+    }
 
     val scrollState = rememberScrollState()
     LaunchedEffect(Unit) {
@@ -101,6 +136,24 @@ fun SettingsScreen(
         }
     }
 
+    // Funzione per mostrare il selettore orario
+    fun showTimePicker(currentTime: String, onTimeSelected: (String) -> Unit) {
+        val parts = currentTime.split(":")
+        val hour = parts[0].toInt()
+        val minute = parts[1].toInt()
+
+        android.app.TimePickerDialog(
+            context,
+            { _, selectedHour, selectedMinute ->
+                val formattedTime = String.format("%02d:%02d", selectedHour, selectedMinute)
+                onTimeSelected(formattedTime)
+            },
+            hour,
+            minute,
+            true // true per il formato 24 ore
+        ).show()
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -145,40 +198,121 @@ fun SettingsScreen(
                 }
             }
 
+            // SEZIONE FITBIT AGGIORNATA
             SettingsSection(title = "Dispositivi Esterni", icon = Icons.Default.Watch) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Fitbit",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = if (isFitbitLinked) "Sincronizzazione attiva" else "Sincronizza peso e idratazione",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isFitbitLinked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (isFitbitLinked) {
-                        Button(
-                            onClick = {
-                                context.getSharedPreferences("fitbit_prefs", Context.MODE_PRIVATE).edit().clear().apply()
-                                isFitbitLinked = false
-                                coroutineScope.launch {
-                                    globalSnackbar.showSnackbar("Fitbit scollegato con successo")
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("Scollega", fontWeight = FontWeight.Bold)
+                if (isFitbitLinked) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Connesso e sincronizzazione attiva",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                // ECCO LA NUOVA SCRITTA!
+                                Text(
+                                    "Ultimo aggiornamento: $lastSyncTime",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                    } else {
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    isSyncing = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val database = com.stefanorussu.hydrationtracker.data.local.AppDatabase.getDatabase(context)
+                                            val fitbitRepo = com.stefanorussu.hydrationtracker.data.repository.FitbitRepository(context, database.waterDao())
+
+                                            val fitbitProfile = fitbitRepo.fetchFitbitProfile()
+                                            if (fitbitProfile != null) {
+                                                val newWeight = fitbitProfile.weight.toFloat()
+
+                                                if (profile.weightKg != newWeight) {
+                                                    val updatedProfile = profile.copy(weightKg = newWeight)
+                                                    profileViewModel.updateProfile(context, updatedProfile)
+                                                    globalSnackbar.showSnackbar("Profilo aggiornato: nuovo peso rilevato!")
+                                                } else {
+                                                    globalSnackbar.showSnackbar("Tutti i dati sono già aggiornati.")
+                                                }
+
+                                                // Aggiorniamo l'orario anche qui se fa il tap manuale!
+                                                val newTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                                                context.getSharedPreferences("hydration_prefs", Context.MODE_PRIVATE).edit().putString("last_sync_time", newTime).apply()
+                                                lastSyncTime = newTime
+
+                                            } else {
+                                                globalSnackbar.showSnackbar("Errore di comunicazione con i server Fitbit.")
+                                            }
+                                        } catch (e: Exception) {
+                                            globalSnackbar.showSnackbar("Errore imprevisto durante l'aggiornamento.")
+                                        } finally {
+                                            isSyncing = false
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f),
+                                enabled = !isSyncing
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Aggiorna Ora", fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    context.getSharedPreferences("fitbit_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+                                    isFitbitLinked = false
+                                    coroutineScope.launch {
+                                        globalSnackbar.showSnackbar("Fitbit scollegato con successo")
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Scollega", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Fitbit",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Sincronizza peso, sport e idratazione",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
                         Button(
                             onClick = {
                                 val url = fitbitAuthManager.getLoginUrl()
@@ -188,6 +322,186 @@ fun SettingsScreen(
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text("Collega", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            SettingsSection(title = "Notifiche", icon = Icons.Default.NotificationsActive) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Raggruppiamo Freccia + Testo a sinistra
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                // Click senza effetto grigio (Ripple)
+                                .clickable(
+                                    enabled = !isNotificationsEnabled,
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null // Questo elimina lo sfondo grigio al tocco
+                                ) {
+                                    showPauseOptions = !showPauseOptions
+                                }
+                        ) {
+                            if (!isNotificationsEnabled) {
+                                val rotationAngle by androidx.compose.animation.core.animateFloatAsState(
+                                    targetValue = if (showPauseOptions) 180f else 0f,
+                                    label = "ArrowRotation"
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    modifier = Modifier.rotate(rotationAngle),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Avvisi di Idratazione",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+
+                                val statusText = if (isNotificationsEnabled) {
+                                    "Attivi"
+                                } else if (selectedPauseOption == "Per sempre") {
+                                    "Disattivate"
+                                } else {
+                                    "In pausa fino alle ${formatTime(pauseUntil.value)}"
+                                }
+
+                                Text(
+                                    text = statusText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isNotificationsEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+
+                        // Lo Switch rimane invariato a destra
+                        Switch(
+                            checked = isNotificationsEnabled,
+                            onCheckedChange = { checked ->
+                                isNotificationsEnabled = checked
+                                if (!checked) showPauseOptions = true
+                                else {
+                                    showPauseOptions = false
+                                    prefs.edit().putLong("notifications_pause_until", 0L).apply()
+                                    pauseUntil.value = 0L
+                                }
+                                prefs.edit().putBoolean("notifications_enabled", checked).apply()
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Silenzio Notturno",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "L'algoritmo non invierà avvisi in questa fascia",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Tasto Orario Inizio
+                            TimePickerChip(
+                                label = "Dalle",
+                                time = silenceStart,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    pickingStartTime = true
+                                    showTimePickerDialog = true
+                                }
+                            )
+
+                            // Tasto Orario Fine
+                            TimePickerChip(
+                                label = "Alle",
+                                time = silenceEnd,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    pickingStartTime = false
+                                    showTimePickerDialog = true
+                                }
+                            )
+                        }
+                    }
+
+                    // --- ANIMAZIONE A CASSETTO (Slide + Fade) ---
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showPauseOptions,
+                        enter = androidx.compose.animation.expandVertically(expandFrom = Alignment.Top) +
+                                androidx.compose.animation.fadeIn(),
+                        exit = androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top) +
+                                androidx.compose.animation.fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Silenzia per:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // I tuoi pulsanti PauseOptionChip rimangono gli stessi
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    PauseOptionChip("1 Ora", selectedPauseOption == "1 Ora", modifier = Modifier.weight(1f)) {
+                                        selectedPauseOption = "1 Ora"
+                                        val time = System.currentTimeMillis() + (1 * 3600 * 1000)
+                                        pauseUntil.value = time
+                                        prefs.edit().putString("pause_option", "1 Ora").putLong("notifications_pause_until", time).apply()
+                                    }
+                                    PauseOptionChip("8 Ore", selectedPauseOption == "8 Ore", modifier = Modifier.weight(1f)) {
+                                        selectedPauseOption = "8 Ore"
+                                        val time = System.currentTimeMillis() + (8 * 3600 * 1000)
+                                        pauseUntil.value = time
+                                        prefs.edit().putString("pause_option", "8 Ore").putLong("notifications_pause_until", time).apply()
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    PauseOptionChip("Domani", selectedPauseOption == "Fino a domani", modifier = Modifier.weight(1f)) {
+                                        selectedPauseOption = "Fino a domani"
+                                        val calendar = java.util.Calendar.getInstance().apply {
+                                            add(java.util.Calendar.DAY_OF_YEAR, 1)
+                                            set(java.util.Calendar.HOUR_OF_DAY, 8)
+                                            set(java.util.Calendar.MINUTE, 0)
+                                        }
+                                        pauseUntil.value = calendar.timeInMillis
+                                        prefs.edit().putString("pause_option", "Fino a domani").putLong("notifications_pause_until", calendar.timeInMillis).apply()
+                                    }
+                                    PauseOptionChip("Sempre", selectedPauseOption == "Per sempre", modifier = Modifier.weight(1f)) {
+                                        selectedPauseOption = "Per sempre"
+                                        pauseUntil.value = 0L
+                                        prefs.edit().putString("pause_option", "Per sempre").putLong("notifications_pause_until", 0L).apply()
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -321,6 +635,38 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+
+    if (showTimePickerDialog) {
+        AlertDialog(
+            onDismissRequest = { showTimePickerDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val formattedTime = String.format("%02d:%02d", timePickerState.hour, timePickerState.minute)
+                    if (pickingStartTime) {
+                        silenceStart = formattedTime
+                        prefs.edit().putString("silence_start", formattedTime).apply()
+                    } else {
+                        silenceEnd = formattedTime
+                        prefs.edit().putString("silence_end", formattedTime).apply()
+                    }
+                    showTimePickerDialog = false
+                }) { Text("Conferma") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePickerDialog = false }) { Text("Annulla") }
+            },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (pickingStartTime) "Inizio silenzio" else "Fine silenzio",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    )
+                    TimePicker(state = timePickerState)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -364,4 +710,49 @@ fun ThemeSelectionChip(title: String, selected: Boolean, onClick: () -> Unit, mo
         modifier = modifier,
         shape = RoundedCornerShape(12.dp)
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PauseOptionChip(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(title, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+    )
+}
+
+@Composable
+fun TimePickerChip(label: String, time: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                time,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }
